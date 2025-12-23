@@ -8,15 +8,7 @@ Closes: #
 
 ## 🧩 Component
 
-<!-- Which component does this PR modify? -->
-- [ ] Build System
-- [ ] PagedAttention
-- [ ] Continuous Batching
-- [ ] Chunked Prefill
-- [ ] FlashAttention
-- [ ] Visualization
-- [ ] Documentation/Article
-- [ ] Other: _______
+<!-- Which component does this PR modify? e.g., PagedAttention, Continuous Batching, Build System -->
 
 
 ## 📝 Implementation Summary
@@ -26,14 +18,15 @@ Closes: #
 
 ## 🧪 Testing
 
-### Test Command
+<!-- How did you test your changes? -->
+
 ```bash
-# How to build and test your changes
+# Build and test commands
 make clang
 ./build/example_test
 ```
 
-### Test Results
+**Test Results:**
 <!-- Paste test output, benchmark results, or screenshots -->
 
 ```
@@ -41,31 +34,14 @@ make clang
 ```
 
 
-## 📚 Documentation & Article
+## 📚 Documentation
 
-<!-- Check all that apply -->
-- [ ] Code comments added for complex logic
-- [ ] README updated (if needed)
-- [ ] Technical article draft prepared
-  - [ ] Implementation details documented
-  - [ ] Design rationale ("Why") explained
-  - [ ] Related to article issue #___
+<!-- Did you update documentation? -->
 
 
-## 👥 Subgroup
+## 👥 Review Notes
 
-<!-- Check your subgroup -->
-- [ ] Group 1 (@RRoundTable, @Zerohertz)
-- [ ] Group 2 (@loveysuby, @teddygood)
-- [ ] Cross-team collaboration
-
-
-## ✅ Checklist
-
-- [ ] Code compiles without warnings (`make clang` or `make nvcc`)
-- [ ] Code follows project style (run `make format`)
-- [ ] Tests pass (if applicable)
-- [ ] Reviewed my own code before requesting review
+<!-- Any specific areas reviewers should focus on? -->
 
 
 ---

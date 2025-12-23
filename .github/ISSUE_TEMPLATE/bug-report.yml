@@ -16,12 +16,10 @@ body:
       label: Component
       description: Which component has the bug?
       options:
-        - PagedAttention
-        - Continuous Batching
-        - Chunked Prefill
-        - FlashAttention
-        - Build System (CMake/Makefile)
+        - Core Algorithm
+        - Build System
         - Visualization
+        - Documentation
         - Other
     validations:
       required: true
