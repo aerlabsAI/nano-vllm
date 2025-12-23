@@ -214,7 +214,6 @@ jobs:
             }
 
             // Remove labels that are no longer relevant
-            const allConfiguredLabels = [...Object.keys(fileBasedLabels), ...Object.keys(keywordBasedLabels)];
             const labelsToRemove = existingLabelNames.filter(
               label => allConfiguredLabels.includes(label) && !labelsToAdd.has(label)
             );

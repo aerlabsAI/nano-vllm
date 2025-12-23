@@ -16,7 +16,7 @@ body:
       label: Feature Type
       description: What type of feature is this?
       options:
-        - Core Algorithm (PagedAttention, Continuous Batching, etc.)
+        - Core Algorithm
         - Performance Optimization
         - Build/Infrastructure
         - Testing/Benchmarking

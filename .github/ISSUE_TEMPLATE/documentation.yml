@@ -43,7 +43,7 @@ body:
       label: Related Features/Components
       description: Which parts of nano-vllm does this relate to?
       placeholder: |
-        e.g., PagedAttention, Continuous Batching, Chunked Prefill, FlashAttention
+        Describe the related components or features
 
   - type: checkboxes
     id: subgroup
