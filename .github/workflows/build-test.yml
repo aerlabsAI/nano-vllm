@@ -1,0 +1,61 @@
+name: Build and Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-clang:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake clang build-essential
+
+      - name: Build with Clang
+        run: make clang
+
+      - name: Run tests
+        run: |
+          if [ -f "./build/example_test" ]; then
+            ./build/example_test
+          else
+            echo "Test binary not found, skipping tests"
+          fi
+
+  build-macos:
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install dependencies
+        run: |
+          brew install cmake
+
+      - name: Build with Clang
+        run: make clang
+
+      - name: Run tests
+        run: |
+          if [ -f "./build/example_test" ]; then
+            ./build/example_test
+          else
+            echo "Test binary not found, skipping tests"
+          fi

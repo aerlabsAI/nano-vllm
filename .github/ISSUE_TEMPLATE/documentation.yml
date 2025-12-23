@@ -1,0 +1,55 @@
+name: "📝 Documentation/Article"
+description: Documentation improvement or educational article discussion
+title: "[Doc]: "
+labels: ["📝 Docs"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Documentation Request
+        Help us improve our educational materials and technical articles.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Type
+      description: What type of documentation is this about?
+      options:
+        - README/Setup Guide
+        - Code Comments
+        - Technical Article - Implementation Deep Dive
+        - Technical Article - Design Decision (Why)
+        - API Documentation
+        - Tutorial/Example
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe what documentation needs to be created or improved
+      placeholder: |
+        - What topic or feature needs better documentation?
+        - What is currently unclear or missing?
+        - Any specific sections or examples needed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: related-features
+    attributes:
+      label: Related Features/Components
+      description: Which parts of nano-vllm does this relate to?
+      placeholder: |
+        e.g., PagedAttention, Continuous Batching, Chunked Prefill, FlashAttention
+
+  - type: checkboxes
+    id: subgroup
+    attributes:
+      label: Subgroup Assignment (if applicable)
+      options:
+        - label: "Group 1 (@RRoundTable, @Zerohertz)"
+        - label: "Group 2 (@loveysuby, @teddygood)"
+        - label: "All team"

@@ -1,0 +1,63 @@
+name: "♻️ Refactor"
+description: Code refactoring or improvement proposal
+title: "[Refactor]: "
+labels: ["♻️ Refactor"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Refactoring Proposal
+        Propose code improvements, restructuring, or technical debt reduction.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Refactor Type
+      description: What type of refactoring is this?
+      options:
+        - Code Structure/Organization
+        - Performance Optimization
+        - Memory Management
+        - Error Handling
+        - Code Duplication Removal
+        - Design Pattern Application
+        - Technical Debt Reduction
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-code
+    attributes:
+      label: Current Implementation
+      description: Describe the current code that needs refactoring
+      placeholder: |
+        - Where is the code located? (file:line)
+        - What does it currently do?
+        - What are the problems or inefficiencies?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-changes
+    attributes:
+      label: Proposed Changes
+      description: How would you improve this code?
+      placeholder: |
+        - What changes do you propose?
+        - Why is this better?
+        - Any performance/readability benefits?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Any additional context or considerations
+      placeholder: |
+        - Related issues or PRs
+        - Breaking changes?
+        - Testing considerations
+        - References or examples

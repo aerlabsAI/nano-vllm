@@ -1,0 +1,299 @@
+name: Label PRs based on changed files
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, assigned, unassigned, edited]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: pr-labeler-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  add-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label PRs based on files and keywords
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
+        with:
+          script: |
+            // Configuration: PR title prefix-based labels (exact match, case-sensitive)
+            const titlePrefixLabels = {
+              "♻️ Refactor": ["[Refactor]"],
+              "🐛 Bug": ["[Bug]"],
+              "✨ Feature": ["[Feature]"],
+              "📝 Docs": ["[Docs]"],
+              "💿 CI": ["[CI]"]
+            };
+
+            // Configuration: file extensions and keyword-based labels
+            const fileBasedLabels = {
+              "⚙️ C++": {
+                extensions: [".cpp", ".cxx", ".cc", ".hpp", ".h", ".hxx", ".hh", ".inl", ".cmake"],
+                files: ["CMakeLists.txt"]
+              },
+              "⚙️ CUDA": {
+                extensions: [".cu", ".cuh"]
+              },
+              "📝 Docs": {
+                extensions: [".md"]
+              },
+              "💿 CI": {
+                files: [".pre-commit-config.yaml", ".clang-format", ".markdownlint.json"],
+                paths: [".github/workflows/", ".github/ISSUE_TEMPLATE/", ".github/PULL_REQUEST_TEMPLATE.md", ".github/CODEOWNERS"]
+              }
+            };
+
+            const keywordBasedLabels = {
+              "📑 PagedAttention": {
+                keywords: ["paged attention", "pagedattention", "kv cache", "block table", "memory management"],
+                substrings: ["paged"]
+              },
+              "🌏 Continuous Batching": {
+                keywords: ["continuous batching", "dynamic batching", "scheduler", "request management"],
+                substrings: ["batch"]
+              },
+              "⛽️ Chunked Prefill": {
+                keywords: ["chunked prefill", "prefill", "decode phase", "sarathi"],
+                substrings: ["chunk"]
+              }
+            };
+
+            const labelsToAdd = new Set();
+            const title = context.payload.pull_request.title || "";
+
+            // 0. Title prefix-based labeling
+            core.notice(`PR Title: "${title}"`);
+            
+            for (const [labelName, prefixes] of Object.entries(titlePrefixLabels)) {
+              for (const prefix of prefixes) {
+                if (title.startsWith(prefix)) {
+                  core.notice(`Title starts with "${prefix}" - adding label "${labelName}"`);
+                  labelsToAdd.add(labelName);
+                  break;
+                }
+              }
+            }
+
+            // 1. File-based labeling
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            core.notice(`Found ${files.length} changed files in PR #${context.issue.number}`);
+
+            const changedFiles = files.map(f => f.filename);
+
+            for (const [labelName, config] of Object.entries(fileBasedLabels)) {
+              let shouldAddLabel = false;
+
+              if (config.extensions) {
+                for (const file of changedFiles) {
+                  if (config.extensions.some(ext => file.endsWith(ext))) {
+                    core.notice(`File "${file}" matches label "${labelName}"`);
+                    shouldAddLabel = true;
+                    break;
+                  }
+                }
+              }
+
+              if (config.files) {
+                for (const file of changedFiles) {
+                  const fileName = file.split('/').pop();
+                  if (config.files.includes(fileName)) {
+                    core.notice(`File "${file}" matches label "${labelName}"`);
+                    shouldAddLabel = true;
+                    break;
+                  }
+                }
+              }
+
+              if (config.paths) {
+                for (const file of changedFiles) {
+                  if (config.paths.some(path => file.startsWith(path))) {
+                    core.notice(`File "${file}" matches path for label "${labelName}"`);
+                    shouldAddLabel = true;
+                    break;
+                  }
+                }
+              }
+
+              if (shouldAddLabel) {
+                labelsToAdd.add(labelName);
+              }
+            }
+
+            // 2. Keyword-based labeling (PR title and body)
+            const body = context.payload.pull_request.body || "";
+            const searchText = (title + " " + body).toLowerCase();
+
+            core.notice(`PR Body length: ${body.length} characters`);
+
+            for (const [labelName, config] of Object.entries(keywordBasedLabels)) {
+              let shouldAddLabel = false;
+
+              // Check keywords
+              if (config.keywords) {
+                for (const keyword of config.keywords) {
+                  const regex = new RegExp(`\\b${keyword.toLowerCase()}\\b`, "i");
+                  if (regex.test(searchText)) {
+                    core.notice(`Keyword "${keyword}" found for label "${labelName}"`);
+                    shouldAddLabel = true;
+                    break;
+                  }
+                }
+              }
+
+              // Check substrings
+              if (!shouldAddLabel && config.substrings) {
+                for (const substring of config.substrings) {
+                  if (searchText.includes(substring.toLowerCase())) {
+                    core.notice(`Substring "${substring}" found for label "${labelName}"`);
+                    shouldAddLabel = true;
+                    break;
+                  }
+                }
+              }
+
+              if (shouldAddLabel) {
+                labelsToAdd.add(labelName);
+              }
+            }
+
+            if (labelsToAdd.size === 0) {
+              core.notice('No matching labels found');
+              return;
+            }
+
+            // Get existing labels
+            const { data: currentLabels } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existingLabelNames = currentLabels.map(l => l.name);
+
+            // Check if labels exist in repository
+            const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+
+            const repoLabelNames = repoLabels.map(l => l.name);
+
+            // Check all labels exist (fail if any missing)
+            const allConfiguredLabels = [...Object.keys(fileBasedLabels), ...Object.keys(keywordBasedLabels)];
+            const missingLabels = allConfiguredLabels.filter(label => !repoLabelNames.includes(label));
+            
+            if (missingLabels.length > 0) {
+              core.setFailed(`The following labels do not exist in repository: ${missingLabels.join(', ')}. Please create them first.`);
+              return;
+            }
+
+            // Add new labels
+            const labelsToAddArray = Array.from(labelsToAdd).filter(
+              label => !existingLabelNames.includes(label)
+            );
+
+            if (labelsToAddArray.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                labels: labelsToAddArray,
+              });
+              core.notice(`Added labels: ${labelsToAddArray.join(', ')}`);
+            } else {
+              core.notice('All relevant labels already present');
+            }
+
+            // Remove labels that are no longer relevant
+            const allConfiguredLabels = [...Object.keys(fileBasedLabels), ...Object.keys(keywordBasedLabels)];
+            const labelsToRemove = existingLabelNames.filter(
+              label => allConfiguredLabels.includes(label) && !labelsToAdd.has(label)
+            );
+
+            for (const label of labelsToRemove) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: label
+              });
+              core.notice(`Removed label "${label}" - no longer matches PR`);
+            }
+
+            core.notice(`Processing complete. Added: ${labelsToAddArray.length}, Removed: ${labelsToRemove.length}`);
+
+            // 3. Assignee-based labeling (Group labels)
+            const assigneeLabels = {
+              "RRoundTable": "🫂 Group 1",
+              "Zerohertz": "🫂 Group 1",
+              "loveysuby": "🫂 Group 2",
+              "teddygood": "🫂 Group 2"
+            };
+
+            const assignees = context.payload.pull_request.assignees || [];
+            const assignedUsernames = assignees.map(a => a.login);
+            
+            core.notice(`PR has ${assignees.length} assignee(s): ${assignedUsernames.join(', ')}`);
+
+            // Check if group labels exist in repository
+            const allGroupLabels = [...new Set(Object.values(assigneeLabels))];
+            const missingGroupLabels = allGroupLabels.filter(label => !repoLabelNames.includes(label));
+            
+            if (missingGroupLabels.length > 0) {
+              core.setFailed(`The following group labels do not exist in repository: ${missingGroupLabels.join(', ')}. Please create them first.`);
+              return;
+            }
+
+            // Get current labels (refresh after previous operations)
+            const { data: currentLabelsAfter } = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existingLabelNamesAfter = currentLabelsAfter.map(l => l.name);
+
+            // Add labels for current assignees
+            for (const assignee of assignees) {
+              const username = assignee.login;
+              if (assigneeLabels[username]) {
+                const labelToAdd = assigneeLabels[username];
+                
+                if (!existingLabelNamesAfter.includes(labelToAdd)) {
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    labels: [labelToAdd],
+                  });
+                  core.notice(`Added label "${labelToAdd}" based on assignee @${username}`);
+                }
+              }
+            }
+
+            // Remove labels for unassigned users
+            const activeGroupLabels = [...new Set(assignedUsernames.map(u => assigneeLabels[u]).filter(Boolean))];
+            const groupLabelsToRemove = allGroupLabels.filter(label => 
+              existingLabelNamesAfter.includes(label) && !activeGroupLabels.includes(label)
+            );
+
+            for (const labelToRemove of groupLabelsToRemove) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: labelToRemove
+              });
+              core.notice(`Removed label "${labelToRemove}" - no assignees from this group`);
+            }
+
+            core.notice(`Assignee processing complete. Group labels added: ${assignees.length}, removed: ${groupLabelsToRemove.length}`);
+

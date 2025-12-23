@@ -1,0 +1,109 @@
+name: "🚀 Feature Implementation"
+description: Propose and plan a new feature implementation
+title: "[Feature]: "
+labels: ["✨ Feature"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Implementation Proposal
+        Planning a new feature for nano-vllm
+
+  - type: dropdown
+    id: feature-type
+    attributes:
+      label: Feature Type
+      description: What type of feature is this?
+      options:
+        - Core Algorithm (PagedAttention, Continuous Batching, etc.)
+        - Performance Optimization
+        - Build/Infrastructure
+        - Testing/Benchmarking
+        - Documentation/Tutorial
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation & Goals
+      description: Why do we need this feature? What problem does it solve?
+      placeholder: |
+        - Educational value: What will this teach us?
+        - Technical value: How does this improve the system?
+        - References: Papers, blog posts, or existing implementations
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Design & Implementation Plan
+      description: How will this feature be implemented?
+      placeholder: |
+        ## High-Level Design
+        - Key components and their responsibilities
+        - Data structures needed
+        - Interfaces with existing code
+
+        ## Implementation Steps
+        1. Step 1...
+        2. Step 2...
+
+        ## Technical Challenges
+        - What are the difficult parts?
+        - Any performance concerns?
+    validations:
+      required: true
+
+  - type: textarea
+    id: testing
+    attributes:
+      label: Testing Strategy
+      description: How will we verify this works correctly?
+      placeholder: |
+        - Unit tests
+        - Integration tests
+        - Performance benchmarks
+        - Example usage
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References & Resources
+      description: Links to papers, articles, or code references
+      placeholder: |
+        - Paper: [Title](URL)
+        - Blog: [Title](URL)
+        - Code: [Repo](URL)
+
+  - type: checkboxes
+    id: subgroup
+    attributes:
+      label: Subgroup Assignment
+      options:
+        - label: "Group 1 (@RRoundTable, @Zerohertz)"
+        - label: "Group 2 (@loveysuby, @teddygood)"
+        - label: "All team"
+
+  - type: checkboxes
+    id: article
+    attributes:
+      label: Educational Article Plan
+      description: Will this feature be documented in the technical article?
+      options:
+        - label: "Implementation details article planned"
+        - label: "Design decision article planned (Why we built it this way)"
+        - label: "No dedicated article needed"
+
+  - type: textarea
+    id: timeline
+    attributes:
+      label: Timeline Estimate
+      description: Rough timeline for implementation
+      placeholder: |
+        - Week 1: Research and design
+        - Week 2-3: Implementation
+        - Week 4: Testing and documentation

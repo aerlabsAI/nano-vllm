@@ -1,0 +1,76 @@
+name: "🐛 Bug Report"
+description: Report a bug in nano-vllm
+title: "[Bug]: "
+labels: ["🐛 Bug"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Bug Report
+        Thank you for helping improve nano-vllm!
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component has the bug?
+      options:
+        - PagedAttention
+        - Continuous Batching
+        - Chunked Prefill
+        - FlashAttention
+        - Build System (CMake/Makefile)
+        - Visualization
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is
+      placeholder: |
+        What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this bug?
+      placeholder: |
+        1. Build with `make clang`
+        2. Run `./example_main`
+        3. See error...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Your development environment
+      placeholder: |
+        - OS: macOS 14.0 / Ubuntu 22.04
+        - Compiler: clang++ 19 / nvcc 12.6
+        - CUDA: Yes/No
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs
+      description: Paste any relevant error messages or logs
+      render: shell
+
+  - type: checkboxes
+    id: subgroup
+    attributes:
+      label: Subgroup (if applicable)
+      options:
+        - label: "Group 1 (@RRoundTable, @Zerohertz)"
+        - label: "Group 2 (@loveysuby, @teddygood)"

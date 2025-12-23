@@ -1,0 +1,314 @@
+name: Label issues based on keywords
+on:
+  issues:
+    types: [opened, edited, reopened, assigned, unassigned]
+permissions:
+  issues: write
+  contents: read
+concurrency:
+  group: issue-labeler-${{ github.event.issue.number }}
+  cancel-in-progress: true
+jobs:
+  add-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label issues based on keywords
+        id: label-step
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
+        with:
+          script: |
+            // Configuration: Add new labels and keywords here
+            const labelConfig = {
+              "📑 PagedAttention": {
+                keywords: [
+                  { term: "paged attention", searchIn: "both" },
+                  { term: "pagedattention", searchIn: "both" },
+                  { term: "kv cache", searchIn: "both" },
+                  { term: "block table", searchIn: "both" },
+                  { term: "memory management", searchIn: "both" }
+                ],
+                substrings: [
+                  { term: "paged", searchIn: "title" }
+                ]
+              },
+              "🌏 Continuous Batching": {
+                keywords: [
+                  { term: "continuous batching", searchIn: "both" },
+                  { term: "dynamic batching", searchIn: "both" },
+                  { term: "scheduler", searchIn: "both" },
+                  { term: "request management", searchIn: "both" }
+                ],
+                substrings: [
+                  { term: "batch", searchIn: "both" }
+                ]
+              },
+              "⛽️ Chunked Prefill": {
+                keywords: [
+                  { term: "chunked prefill", searchIn: "both" },
+                  { term: "prefill", searchIn: "both" }
+                ],
+                substrings: [
+                  { term: "chunk", searchIn: "both" }
+                ]
+              },
+              "⚙️ CUDA": {
+                keywords: [
+                  { term: "cuda", searchIn: "both" },
+                  { term: "gpu", searchIn: "both" }
+                ],
+                substrings: [
+                  { term: ".cu", searchIn: "body" },
+                  { term: ".cuh", searchIn: "body" }
+                ]
+              },
+              "⚙️ C++": {
+                keywords: [
+                  { term: "c++", searchIn: "both" },
+                  { term: "cpp", searchIn: "both" }
+                ],
+                substrings: [
+                  { term: ".cpp", searchIn: "body" },
+                  { term: ".hpp", searchIn: "body" },
+                  { term: ".h", searchIn: "body" }
+                ]
+              },
+              "💿 CI": {
+                keywords: [
+                  { term: "ci", searchIn: "both" },
+                  { term: "continuous integration", searchIn: "both" },
+                  { term: "github actions", searchIn: "both" },
+                  { term: "workflow", searchIn: "both" },
+                  { term: "pre-commit", searchIn: "both" }
+                ],
+                substrings: [
+                  { term: ".github/workflows", searchIn: "body" },
+                  { term: "pre-commit-config", searchIn: "body" }
+                ]
+              }
+            };
+
+            // Helper function to create regex based on search type
+            function createSearchRegex(term, type) {
+              const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              switch (type) {
+                case 'keyword':
+                  return new RegExp(`\\b${escapedTerm}\\b`, "gi");
+                case 'substring':
+                  return new RegExp(escapedTerm, "gi");
+                default:
+                  throw new Error(`Unknown search type: ${type}`);
+              }
+            }
+
+            // Helper function to find matching terms in text with line information
+            function findMatchingTermsWithLines(text, searchTerms = [], searchType = 'keyword', searchLocation = '') {
+              const matches = [];
+              const lines = text.split('\n');
+
+              for (const termConfig of searchTerms) {
+                let regex;
+                let term, searchIn, pattern, description, flags;
+
+                if (typeof termConfig === 'string') {
+                  term = termConfig;
+                  searchIn = 'both';
+                } else {
+                  term = termConfig.term;
+                  searchIn = termConfig.searchIn || 'both';
+                  pattern = termConfig.pattern;
+                  description = termConfig.description;
+                  flags = termConfig.flags;
+                }
+
+                if (searchIn !== 'both' && searchIn !== searchLocation) {
+                  continue;
+                }
+
+                if (searchType === 'regex') {
+                  regex = new RegExp(pattern, flags || "gi");
+                } else {
+                  regex = createSearchRegex(term, searchType);
+                }
+
+                const termMatches = [];
+
+                lines.forEach((line, lineIndex) => {
+                  const lineMatches = line.match(regex);
+                  if (lineMatches) {
+                    lineMatches.forEach(match => {
+                      termMatches.push({
+                        match: match,
+                        lineNumber: lineIndex + 1,
+                        lineContent: line.trim(),
+                        searchType: searchType,
+                        searchLocation: searchLocation,
+                        originalTerm: term || pattern,
+                        description: description,
+                        context: line.length > 100 ?
+                          line.substring(Math.max(0, line.toLowerCase().indexOf(match.toLowerCase()) - 30),
+                                       line.toLowerCase().indexOf(match.toLowerCase()) + match.length + 30) + '...'
+                          : line.trim()
+                      });
+                    });
+                  }
+                });
+
+                if (termMatches.length > 0) {
+                  matches.push({
+                    term: term || (description || pattern),
+                    searchType: searchType,
+                    searchLocation: searchLocation,
+                    searchIn: searchIn,
+                    pattern: pattern,
+                    matches: termMatches,
+                    count: termMatches.length
+                  });
+                }
+              }
+
+              return matches;
+            }
+
+            // Helper function to check if label should be added
+            async function processLabel(labelName, config) {
+              const body = context.payload.issue.body || "";
+              const title = context.payload.issue.title || "";
+
+              core.notice(`Processing label: ${labelName}`);
+              core.notice(`Issue Title: "${title}"`);
+              core.notice(`Issue Body length: ${body.length} characters`);
+
+              let allMatches = [];
+              const keywords = config.keywords || [];
+              const substrings = config.substrings || [];
+              const regexPatterns = config.regexPatterns || [];
+
+              core.notice(`Searching with ${keywords.length} keywords, ${substrings.length} substrings, and ${regexPatterns.length} regex patterns`);
+
+              // Search in title
+              if (title.trim()) {
+                core.notice(`Searching in title: "${title}"`);
+                const titleKeywordMatches = findMatchingTermsWithLines(title, keywords, 'keyword', 'title');
+                const titleSubstringMatches = findMatchingTermsWithLines(title, substrings, 'substring', 'title');
+                const titleRegexMatches = findMatchingTermsWithLines(title, regexPatterns, 'regex', 'title');
+                allMatches.push(...titleKeywordMatches, ...titleSubstringMatches, ...titleRegexMatches);
+              }
+
+              // Search in body
+              if (body.trim()) {
+                core.notice(`Searching in body (${body.length} characters)`);
+                const bodyKeywordMatches = findMatchingTermsWithLines(body, keywords, 'keyword', 'body');
+                const bodySubstringMatches = findMatchingTermsWithLines(body, substrings, 'substring', 'body');
+                const bodyRegexMatches = findMatchingTermsWithLines(body, regexPatterns, 'regex', 'body');
+                allMatches.push(...bodyKeywordMatches, ...bodySubstringMatches, ...bodyRegexMatches);
+              }
+
+              if (allMatches.length > 0) {
+                core.notice(`Found ${allMatches.length} matching term(s) for label "${labelName}"`);
+                
+                // Check if label exists in repository
+                const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                });
+                const repoLabelNames = repoLabels.map(l => l.name);
+                
+                if (!repoLabelNames.includes(labelName)) {
+                  core.setFailed(`Label "${labelName}" does not exist in repository. Please create it first.`);
+                  return false;
+                }
+                
+                const existingLabels = context.payload.issue.labels.map(l => l.name);
+                if (!existingLabels.includes(labelName)) {
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    labels: [labelName],
+                  });
+                  core.notice(`Label "${labelName}" added.`);
+                  return true;
+                }
+                core.notice(`Label "${labelName}" already present.`);
+                return false;
+              }
+
+              core.notice(`No matching terms found for label "${labelName}".`);
+              return false;
+            }
+
+            // Process all configured labels
+            const labelsAddedResults = await Promise.all(
+              Object.entries(labelConfig).map(([labelName, config]) => 
+                processLabel(labelName, config).then(added => ({ labelName, added }))
+              )
+            );
+            
+            // Assignee-based labeling
+            const assigneeLabels = {
+              "RRoundTable": "🫂 Group 1",
+              "Zerohertz": "🫂 Group 1",
+              "loveysuby": "🫂 Group 2",
+              "teddygood": "🫂 Group 2"
+            };
+            
+            const assignees = context.payload.issue.assignees || [];
+            const assignedUsernames = assignees.map(a => a.login);
+            const existingLabels = context.payload.issue.labels.map(l => l.name);
+            
+            // Check if assignee labels exist in repository
+            const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const repoLabelNames = repoLabels.map(l => l.name);
+            
+            const allGroupLabels = [...new Set(Object.values(assigneeLabels))];
+            for (const groupLabel of allGroupLabels) {
+              if (!repoLabelNames.includes(groupLabel)) {
+                core.setFailed(`Label "${groupLabel}" does not exist in repository. Please create it first.`);
+                return;
+              }
+            }
+            
+            // Add labels for current assignees
+            for (const assignee of assignees) {
+              const username = assignee.login;
+              if (assigneeLabels[username]) {
+                const labelToAdd = assigneeLabels[username];
+                
+                if (!existingLabels.includes(labelToAdd)) {
+                  await github.rest.issues.addLabels({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    labels: [labelToAdd],
+                  });
+                  core.notice(`Added label "${labelToAdd}" based on assignee @${username}`);
+                  labelsAddedResults.push({ labelName: labelToAdd, added: true });
+                }
+              }
+            }
+            
+            // Remove labels for unassigned users
+            const activeGroupLabels = [...new Set(assignedUsernames.map(u => assigneeLabels[u]).filter(Boolean))];
+            const labelsToRemove = allGroupLabels.filter(label => 
+              existingLabels.includes(label) && !activeGroupLabels.includes(label)
+            );
+            
+            for (const labelToRemove of labelsToRemove) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: labelToRemove
+              });
+              core.notice(`Removed label "${labelToRemove}" - no assignees from this group`);
+            }
+            
+            const numLabelsAdded = labelsAddedResults.filter(r => r.added).length;
+            core.notice(`Processing complete. ${numLabelsAdded} label(s) added.`);
+            
+            const addedLabels = labelsAddedResults.filter(r => r.added).map(r => r.labelName);
+            core.setOutput('labels_added', JSON.stringify(addedLabels));
+            return addedLabels;
