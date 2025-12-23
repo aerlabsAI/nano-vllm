@@ -1,0 +1,9 @@
+{
+  "MD013": false,
+  "MD033": {
+    "allowed_elements": ["h1", "h3"]
+  },
+  "MD040": false,
+  "MD049": { "style": "asterisk" },
+  "MD051": false
+}
