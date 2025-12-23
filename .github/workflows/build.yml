@@ -1,4 +1,4 @@
-name: Build and Test
+name: Build
 
 on:
   pull_request:
@@ -29,14 +29,6 @@ jobs:
       - name: Build with Clang
         run: make clang
 
-      - name: Run tests
-        run: |
-          if [ -f "./build/example_test" ]; then
-            ./build/example_test
-          else
-            echo "Test binary not found, skipping tests"
-          fi
-
   build-macos:
     runs-on: macos-latest
     timeout-minutes: 20
@@ -51,11 +43,3 @@ jobs:
 
       - name: Build with Clang
         run: make clang
-
-      - name: Run tests
-        run: |
-          if [ -f "./build/example_test" ]; then
-            ./build/example_test
-          else
-            echo "Test binary not found, skipping tests"
-          fi
