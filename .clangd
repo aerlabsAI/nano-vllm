@@ -1,0 +1,9 @@
+CompileFlags:
+  Add: [-I/usr/local/cuda/include]
+  Remove:
+    [
+      -Xcompiler=*,
+      --generate-code=*,
+      --options-file,
+      -forward-unknown-to-host-compiler,
+    ]
