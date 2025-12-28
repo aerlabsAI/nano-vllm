@@ -207,19 +207,19 @@ jobs:
 
               if (allMatches.length > 0) {
                 core.notice(`Found ${allMatches.length} matching term(s) for label "${labelName}"`);
-                
+
                 // Check if label exists in repository
                 const { data: repoLabels } = await github.rest.issues.listLabelsForRepo({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                 });
                 const repoLabelNames = repoLabels.map(l => l.name);
-                
+
                 if (!repoLabelNames.includes(labelName)) {
                   core.setFailed(`Label "${labelName}" does not exist in repository. Please create it first.`);
-                  return false;
+                  return { added: false, matched: false };
                 }
-                
+
                 const existingLabels = context.payload.issue.labels.map(l => l.name);
                 if (!existingLabels.includes(labelName)) {
                   await github.rest.issues.addLabels({
@@ -229,23 +229,45 @@ jobs:
                     labels: [labelName],
                   });
                   core.notice(`Label "${labelName}" added.`);
-                  return true;
+                  return { added: true, matched: true };
                 }
                 core.notice(`Label "${labelName}" already present.`);
-                return false;
+                return { added: false, matched: true };
               }
 
               core.notice(`No matching terms found for label "${labelName}".`);
-              return false;
+              return { added: false, matched: false };
             }
 
             // Process all configured labels
-            const labelsAddedResults = await Promise.all(
-              Object.entries(labelConfig).map(([labelName, config]) => 
-                processLabel(labelName, config).then(added => ({ labelName, added }))
+            const labelsResults = await Promise.all(
+              Object.entries(labelConfig).map(([labelName, config]) =>
+                processLabel(labelName, config).then(result => ({ labelName, ...result }))
               )
             );
-            
+
+            // Get current labels to check for removal
+            const existingLabels = context.payload.issue.labels.map(l => l.name);
+            const allConfiguredLabels = Object.keys(labelConfig);
+            const matchedLabels = labelsResults.filter(r => r.matched).map(r => r.labelName);
+
+            // Remove labels that are no longer relevant
+            const labelsToRemove = existingLabels.filter(
+              label => allConfiguredLabels.includes(label) && !matchedLabels.includes(label)
+            );
+
+            for (const labelToRemove of labelsToRemove) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: labelToRemove
+              });
+              core.notice(`Removed label "${labelToRemove}" - no longer matches issue`);
+            }
+
+            core.notice(`Keyword-based processing complete. Added: ${labelsResults.filter(r => r.added).length}, Removed: ${labelsToRemove.length}`);
+
             // Assignee-based labeling
             const assigneeLabels = {
               "RRoundTable": "🫂 Group 1",
@@ -287,7 +309,6 @@ jobs:
                     labels: [labelToAdd],
                   });
                   core.notice(`Added label "${labelToAdd}" based on assignee @${username}`);
-                  labelsAddedResults.push({ labelName: labelToAdd, added: true });
                 }
               }
             }
@@ -308,9 +329,9 @@ jobs:
               core.notice(`Removed label "${labelToRemove}" - no assignees from this group`);
             }
             
-            const numLabelsAdded = labelsAddedResults.filter(r => r.added).length;
-            core.notice(`Processing complete. ${numLabelsAdded} label(s) added.`);
-            
-            const addedLabels = labelsAddedResults.filter(r => r.added).map(r => r.labelName);
+            const numLabelsAdded = labelsResults.filter(r => r.added).length;
+            core.notice(`Overall processing complete. ${numLabelsAdded} label(s) added from keywords.`);
+
+            const addedLabels = labelsResults.filter(r => r.added).map(r => r.labelName);
             core.setOutput('labels_added', JSON.stringify(addedLabels));
             return addedLabels;
