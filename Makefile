@@ -43,7 +43,7 @@ init:
 			echo "Installing uv..."; \
 			curl -LsSf https://astral.sh/uv/install.sh | sh; \
 		fi; \
-		uv pip install pre-commit; \
+		uv pip install --system pre-commit; \
 		pre-commit install; \
 		echo "Note: CUDA Toolkit is not officially supported on macOS."; \
 		echo "For CUDA development, please use Docker or a Linux environment."; \
@@ -58,7 +58,7 @@ init:
 		apt-get install -y \
 		gdb cuda-toolkit-12-6 \
 		clang-tidy clang-format; \
-		uv pip install pre-commit; \
+		uv pip install --system pre-commit; \
 		pre-commit install; \
 	else \
 		echo "Error: Unsupported OS ($(UNAME_S))"; \
