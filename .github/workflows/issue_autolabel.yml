@@ -173,10 +173,12 @@ jobs:
             async function processLabel(labelName, config) {
               const body = context.payload.issue.body || "";
               const title = context.payload.issue.title || "";
+              // Remove HTML comments to avoid matching example text in issue template
+              const cleanedBody = body.replace(/<!--[\s\S]*?-->/g, '');
 
               core.notice(`Processing label: ${labelName}`);
               core.notice(`Issue Title: "${title}"`);
-              core.notice(`Issue Body length: ${body.length} characters`);
+              core.notice(`Issue Body length: ${body.length} characters (${cleanedBody.length} after removing HTML comments)`);
 
               let allMatches = [];
               const keywords = config.keywords || [];
@@ -195,11 +197,11 @@ jobs:
               }
 
               // Search in body
-              if (body.trim()) {
-                core.notice(`Searching in body (${body.length} characters)`);
-                const bodyKeywordMatches = findMatchingTermsWithLines(body, keywords, 'keyword', 'body');
-                const bodySubstringMatches = findMatchingTermsWithLines(body, substrings, 'substring', 'body');
-                const bodyRegexMatches = findMatchingTermsWithLines(body, regexPatterns, 'regex', 'body');
+              if (cleanedBody.trim()) {
+                core.notice(`Searching in cleaned body (${cleanedBody.length} characters)`);
+                const bodyKeywordMatches = findMatchingTermsWithLines(cleanedBody, keywords, 'keyword', 'body');
+                const bodySubstringMatches = findMatchingTermsWithLines(cleanedBody, substrings, 'substring', 'body');
+                const bodyRegexMatches = findMatchingTermsWithLines(cleanedBody, regexPatterns, 'regex', 'body');
                 allMatches.push(...bodyKeywordMatches, ...bodySubstringMatches, ...bodyRegexMatches);
               }
 

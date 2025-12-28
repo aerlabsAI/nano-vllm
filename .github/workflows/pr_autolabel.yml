@@ -130,9 +130,11 @@ jobs:
 
             // 2. Keyword-based labeling (PR title and body)
             const body = context.payload.pull_request.body || "";
-            const searchText = (title + " " + body).toLowerCase();
+            // Remove HTML comments to avoid matching example text in PR template
+            const cleanedBody = body.replace(/<!--[\s\S]*?-->/g, '');
+            const searchText = (title + " " + cleanedBody).toLowerCase();
 
-            core.notice(`PR Body length: ${body.length} characters`);
+            core.notice(`PR Body length: ${body.length} characters (${cleanedBody.length} after removing HTML comments)`);
 
             for (const [labelName, config] of Object.entries(keywordBasedLabels)) {
               let shouldAddLabel = false;
