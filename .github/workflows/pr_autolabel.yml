@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Label PRs based on files and keywords
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           script: |
             // Configuration: PR title prefix-based labels (exact match, case-sensitive)
@@ -26,7 +26,8 @@ jobs:
               "🐛 Bug": ["[Bug]"],
               "✨ Feature": ["[Feature]"],
               "📝 Docs": ["[Docs]"],
-              "💿 CI": ["[CI]"]
+              "💿 CI": ["[CI]"],
+              "⛏️ Misc": ["[Misc]"]
             };
 
             // Configuration: file extensions and keyword-based labels
@@ -67,7 +68,7 @@ jobs:
 
             // 0. Title prefix-based labeling
             core.notice(`PR Title: "${title}"`);
-            
+
             for (const [labelName, prefixes] of Object.entries(titlePrefixLabels)) {
               for (const prefix of prefixes) {
                 if (title.startsWith(prefix)) {
@@ -190,9 +191,9 @@ jobs:
             const repoLabelNames = repoLabels.map(l => l.name);
 
             // Check all labels exist (fail if any missing)
-            const allConfiguredLabels = [...Object.keys(fileBasedLabels), ...Object.keys(keywordBasedLabels)];
+            const allConfiguredLabels = [...Object.keys(titlePrefixLabels), ...Object.keys(fileBasedLabels), ...Object.keys(keywordBasedLabels)];
             const missingLabels = allConfiguredLabels.filter(label => !repoLabelNames.includes(label));
-            
+
             if (missingLabels.length > 0) {
               core.setFailed(`The following labels do not exist in repository: ${missingLabels.join(', ')}. Please create them first.`);
               return;
@@ -242,13 +243,13 @@ jobs:
 
             const assignees = context.payload.pull_request.assignees || [];
             const assignedUsernames = assignees.map(a => a.login);
-            
+
             core.notice(`PR has ${assignees.length} assignee(s): ${assignedUsernames.join(', ')}`);
 
             // Check if group labels exist in repository
             const allGroupLabels = [...new Set(Object.values(assigneeLabels))];
             const missingGroupLabels = allGroupLabels.filter(label => !repoLabelNames.includes(label));
-            
+
             if (missingGroupLabels.length > 0) {
               core.setFailed(`The following group labels do not exist in repository: ${missingGroupLabels.join(', ')}. Please create them first.`);
               return;
@@ -297,4 +298,3 @@ jobs:
             }
 
             core.notice(`Assignee processing complete. Group labels added: ${assignees.length}, removed: ${groupLabelsToRemove.length}`);
-
