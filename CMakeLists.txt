@@ -1,13 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 # NOTE: Ref: https://github.com/NVIDIA/cuda-samples
-=======
-# NOTE:
-# Ref: https://github.com/NVIDIA/cuda-samples
->>>>>>> 938f31b (Fix CMakelists)
-=======
-# NOTE: Ref: https://github.com/NVIDIA/cuda-samples
->>>>>>> 87fb132 (fix pre-commit)
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -43,19 +34,9 @@ if(CUDAToolkit_FOUND)
     endif()
   endif()
 else()
-<<<<<<< HEAD
-<<<<<<< HEAD
   message(
     WARNING
       "CUDA Toolkit not found. Building C++ only (CUDA files will be skipped).")
-=======
-  message(WARNING "CUDA Toolkit not found. Building C++ only (CUDA files will be skipped).")
->>>>>>> 938f31b (Fix CMakelists)
-=======
-  message(
-    WARNING
-      "CUDA Toolkit not found. Building C++ only (CUDA files will be skipped).")
->>>>>>> 87fb132 (fix pre-commit)
   if(USE_DEBUG)
     set(CMAKE_BUILD_TYPE "Debug")
   endif()
@@ -70,17 +51,7 @@ if(APPLE)
   execute_process(
     COMMAND xcrun --show-sdk-path
     OUTPUT_VARIABLE MACOS_SDK_PATH
-<<<<<<< HEAD
-<<<<<<< HEAD
     OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
-=======
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-  )
->>>>>>> 938f31b (Fix CMakelists)
-=======
-    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
->>>>>>> 87fb132 (fix pre-commit)
   if(MACOS_SDK_PATH)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isysroot ${MACOS_SDK_PATH}")
     message(STATUS "Using macOS SDK: ${MACOS_SDK_PATH}")
@@ -128,12 +99,4 @@ if(CUDAToolkit_FOUND)
     endif()
     add_executable(${PREFIX}${executable_name} ${cu_source})
   endforeach()
-<<<<<<< HEAD
-<<<<<<< HEAD
 endif()
-=======
-endif()
->>>>>>> 938f31b (Fix CMakelists)
-=======
-endif()
->>>>>>> 87fb132 (fix pre-commit)
