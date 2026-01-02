@@ -17,17 +17,20 @@
 ## Quick Start
 
 1. **Initialize & Download Model**:
+
    ```bash
    make init
    ```
 
 2. **Build**:
+
    ```bash
    make clang
    cmake --build build
    ```
 
 3. **Run**:
+
    ```bash
    ./build/src_main models/model.bin -i "Once upon a time"
    ```
