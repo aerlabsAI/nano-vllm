@@ -1,7 +1,9 @@
 ---
 created: 2026-01-02 19:38
-updated: 2026-01-02 19:39
+updated: 2026-01-03 10:27
 ---
+
+# Why did we start the nano-vLLM project?
 
 The nano-vLLM project draws strong inspiration from minimalist implementations such as nanoGPT by Andrej Karpathy and llm.c. Rather than targeting state-of-the-art performance, these projects focus on exposing the core principles of complex models and systems through minimal code. By providing implementations that are readable, traceable, and explainable in terms of why they are designed the way they are, they have established themselves as effective educational tools rather than simple toy projects.
 
