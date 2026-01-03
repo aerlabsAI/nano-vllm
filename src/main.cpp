@@ -595,7 +595,14 @@ private:
         state.logits.resize(config.vocab_size);
 
         // KV Cache
-        long cache_size = (long)config.n_layers * config.max_seq_len * config.n_kv_heads * config.head_dim;
+        size_t cache_size = static_cast<size_t>(config.n_layers) * static_cast<size_t>(config.max_seq_len)
+                          * static_cast<size_t>(config.n_kv_heads) * static_cast<size_t>(config.head_dim);
+
+        constexpr size_t MAX_CACHE_ELEMENTS = 25'000'000'000ULL; // ~100GB in floats
+        if (cache_size > MAX_CACHE_ELEMENTS) {
+            throw std::runtime_error("KV cache size exceeds limit");
+        }
+
         state.key_cache.resize(cache_size);
         state.value_cache.resize(cache_size);
     }
