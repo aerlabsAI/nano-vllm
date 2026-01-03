@@ -208,3 +208,6 @@ __marimo__/
 
 # Secret
 .DS_Store
+
+# Models
+models/

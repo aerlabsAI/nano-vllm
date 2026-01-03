@@ -64,6 +64,27 @@ init:
 		echo "Error: Unsupported OS ($(UNAME_S))"; \
 		exit 1; \
 	fi
+	@$(MAKE) download_models
+
+download_models:
+	@echo "Downloading models..."
+	@mkdir -p models
+	@if command -v wget >/dev/null 2>&1; then \
+		echo "Downloading model with wget..."; \
+		wget -O models/model.bin "https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin"; \
+		echo "Downloading tokenizer with wget..."; \
+		wget -O models/tokenizer.bin "https://github.com/karpathy/llama2.c/raw/master/tokenizer.bin"; \
+	elif command -v curl >/dev/null 2>&1; then \
+		echo "wget not found, using curl instead..."; \
+		echo "Downloading model..."; \
+		curl -L -o models/model.bin "https://huggingface.co/karpathy/tinyllamas/resolve/main/stories15M.bin"; \
+		echo "Downloading tokenizer..."; \
+		curl -L -o models/tokenizer.bin "https://github.com/karpathy/llama2.c/raw/master/tokenizer.bin"; \
+	else \
+		echo "Error: Neither wget nor curl found. Please install wget."; \
+		exit 1; \
+	fi
+	@echo "Download complete!"
 
 # Code quality tools
 lint:
