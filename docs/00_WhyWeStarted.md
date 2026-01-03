@@ -1,6 +1,6 @@
 ---
 created: 2026-01-02 19:38
-updated: 2026-01-03 10:46
+updated: 2026-01-03 10:57
 ---
 
 # Why did we start the nano-vLLM project?
@@ -15,9 +15,9 @@ In addition, the field of LLM inference optimization is evolving rapidly. While 
 
 ## References
 
-[^1]: Andrej Karpathy. nanoGPT. https://github.com/karpathy/nanoGPT
-[^2]: Andrej Karpathy. llm.c. https://github.com/karpathy/llm.c
-[^3]: Zhao et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. arXiv:2309.06180. https://arxiv.org/abs/2309.06180
-[^4]: vLLM. https://github.com/vllm-project/vllm
-[^5]: SGLang. https://github.com/sgl-project/sglang
-[^6]: nano-vLLM (existing implementation). https://github.com/GeeeekExplorer/nano-vllm
+[^1]: Andrej Karpathy. nanoGPT. <https://github.com/karpathy/nanoGPT>
+[^2]: Andrej Karpathy. llm.c. <https://github.com/karpathy/llm.c>
+[^3]: Zhao et al. Efficient Memory Management for Large Language Model Serving with PagedAttention. arXiv:2309.06180. <https://arxiv.org/abs/2309.06180>
+[^4]: vLLM. <https://github.com/vllm-project/vllm>
+[^5]: SGLang. <https://github.com/sgl-project/sglang>
+[^6]: nano-vLLM (existing implementation). <https://github.com/GeeeekExplorer/nano-vllm>
