@@ -24,6 +24,7 @@ int main(int argc, char **argv)
     parser.add_option<float>("-t", "Temperature for sampling", 1.0f);
     parser.add_option<float>("-p", "Top-p (nucleus) sampling parameter", 0.9f);
     parser.add_option<int>("-n", "Number of steps to generate", 256);
+    parser.add_option<int>("--without-paged-attn", "Disable PagedAttention (use standard attention)", 0);
     parser.add_option<std::string>("-i", "Input prompt");
 
     if (!parser.parse(argc, argv)) {
@@ -32,11 +33,12 @@ int main(int argc, char **argv)
     }
 
     // Get parsed arguments
-    std::string input_path  = parser.get_positional();
-    float       temperature = parser.get<float>("-t");
-    float       topp        = parser.get<float>("-p");
-    int         steps       = parser.get<int>("-n");
-    std::string prompt      = parser.get<std::string>("-i");
+    std::string input_path         = parser.get_positional();
+    float       temperature        = parser.get<float>("-t");
+    float       topp               = parser.get<float>("-p");
+    int         steps              = parser.get<int>("-n");
+    bool        without_paged_attn = parser.get<int>("--without-paged-attn") != 0;
+    std::string prompt             = parser.get<std::string>("-i");
 
     // 1. Resolve model and tokenizer paths
     std::string model_path, tokenizer_path;
@@ -54,6 +56,18 @@ int main(int argc, char **argv)
     LlamaModel model;
     try {
         model.load(model_path);
+
+        // Configure PagedAttention based on CLI flag
+        model.config.use_paged_attention = !without_paged_attn;
+
+        if (model.config.use_paged_attention) {
+            LOG_INFO("Using PagedAttention (block_size=", model.config.block_size, ")");
+            model.initialize_paged_attention();
+        }
+        else {
+            LOG_INFO("Using Standard Attention");
+        }
+
         LOG_SUCCESS("Model loaded successfully");
     }
     catch (const std::exception &e) {

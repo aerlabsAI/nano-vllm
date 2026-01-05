@@ -7,10 +7,12 @@
 #include <string>
 #include <vector>
 
+#include "core/attention.hpp"
 #include "ops/activation.hpp"
 #include "ops/linear.hpp"
 #include "ops/normalization.hpp"
 #include "ops/positional.hpp"
+#include "scheduler/block_manager.hpp"
 #include "utils/logger.hpp"
 
 // ============================================================================
@@ -26,6 +28,11 @@ struct Config
     int n_kv_heads;  // Number of key/value heads (can be < n_heads for GQA)
     int vocab_size;  // Vocabulary size
     int max_seq_len; // Maximum sequence length
+
+    // PagedAttention configuration
+    bool use_paged_attention = false; // Enable/disable PagedAttention
+    int  block_size          = 16;    // Block size for PagedAttention (in tokens)
+    int  num_blocks          = 256;   // Total number of physical blocks
 
     // Derived/Constants
     int   head_dim;
@@ -78,10 +85,15 @@ struct RunState
     std::vector<float> att;    // [n_heads, seq_len]
     std::vector<float> logits; // [vocab_size]
 
-    // KV Cache
+    // Standard KV Cache (contiguous memory)
     // Layout: [n_layers, max_seq_len, n_kv_heads, head_dim]
     std::vector<float> key_cache;
     std::vector<float> value_cache;
+
+    // Paged KV Cache (block-based memory)
+    // Layout: [n_layers, num_blocks, block_size, n_kv_heads, head_dim]
+    std::vector<float> paged_key_cache;
+    std::vector<float> paged_value_cache;
 };
 
 // ============================================================================
@@ -94,6 +106,10 @@ public:
     Config             config;
     TransformerWeights weights;
     RunState           state;
+
+    // PagedAttention components
+    BlockManager                 *block_manager = nullptr;
+    std::vector<std::vector<int>> block_tables; // [n_layers][logical_blocks]
 
     void load(const std::string &path)
     {
@@ -155,13 +171,47 @@ public:
                             config.rope_theta);
 
             // Save to KV Cache
-            int    layer_offset = i * config.max_seq_len * config.n_kv_heads * config.head_dim;
-            int    pos_offset   = pos * config.n_kv_heads * config.head_dim;
-            float *k_cache_ptr  = state.key_cache.data() + layer_offset + pos_offset;
-            float *v_cache_ptr  = state.value_cache.data() + layer_offset + pos_offset;
+            if (config.use_paged_attention) {
+                // PagedAttention: Block-based KV cache
+                // Allocate new block if needed
+                if (pos % config.block_size == 0) {
+                    int new_block = block_manager->allocate_block();
+                    if (new_block == -1) {
+                        throw std::runtime_error("Out of memory: no free blocks");
+                    }
+                    block_tables[i].push_back(new_block);
+                }
 
-            std::memcpy(k_cache_ptr, state.k.data(), config.n_kv_heads * config.head_dim * sizeof(float));
-            std::memcpy(v_cache_ptr, state.v.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+                // Get current block
+                int logical_block  = pos / config.block_size;
+                int block_offset   = pos % config.block_size;
+                int physical_block = block_tables[i][logical_block];
+
+                // Calculate cache pointers
+                // Layout: [n_layers, num_blocks, block_size, n_kv_heads, head_dim]
+                size_t layer_cache_offset =
+                    i * config.num_blocks * config.block_size * config.n_kv_heads * config.head_dim;
+                size_t block_cache_offset = physical_block * config.block_size * config.n_kv_heads * config.head_dim;
+                size_t pos_cache_offset   = block_offset * config.n_kv_heads * config.head_dim;
+
+                float *k_cache_ptr =
+                    state.paged_key_cache.data() + layer_cache_offset + block_cache_offset + pos_cache_offset;
+                float *v_cache_ptr =
+                    state.paged_value_cache.data() + layer_cache_offset + block_cache_offset + pos_cache_offset;
+
+                std::memcpy(k_cache_ptr, state.k.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+                std::memcpy(v_cache_ptr, state.v.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+            }
+            else {
+                // Standard: Contiguous KV cache
+                int    layer_offset = i * config.max_seq_len * config.n_kv_heads * config.head_dim;
+                int    pos_offset   = pos * config.n_kv_heads * config.head_dim;
+                float *k_cache_ptr  = state.key_cache.data() + layer_offset + pos_offset;
+                float *v_cache_ptr  = state.value_cache.data() + layer_offset + pos_offset;
+
+                std::memcpy(k_cache_ptr, state.k.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+                std::memcpy(v_cache_ptr, state.v.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+            }
 
             // Multi-head Attention
             attention(i, pos, state.xb2.data()); // writes to xb2
@@ -290,64 +340,74 @@ private:
         state.value_cache.resize(cache_size);
     }
 
+    void initialize_paged_attention()
+    {
+        if (!config.use_paged_attention) {
+            return;
+        }
+
+        // Initialize BlockManager
+        block_manager = new BlockManager(config.num_blocks, config.block_size);
+
+        // Initialize block tables for each layer
+        block_tables.resize(config.n_layers);
+
+        // Allocate paged KV cache
+        // Layout: [n_layers, num_blocks, block_size, n_kv_heads, head_dim]
+        size_t paged_cache_size = static_cast<size_t>(config.n_layers) * static_cast<size_t>(config.num_blocks)
+                                * static_cast<size_t>(config.block_size) * static_cast<size_t>(config.n_kv_heads)
+                                * static_cast<size_t>(config.head_dim);
+
+        state.paged_key_cache.resize(paged_cache_size);
+        state.paged_value_cache.resize(paged_cache_size);
+
+        LOG_SUCCESS("PagedAttention initialized: ",
+                    config.num_blocks,
+                    " blocks × ",
+                    config.block_size,
+                    " tokens = ",
+                    config.num_blocks * config.block_size,
+                    " total capacity");
+    }
+
     void attention(int layer, int pos, float *out)
     {
-        float *att        = state.att.data();
-        float *q          = state.q.data();
-        int    head_dim   = config.head_dim;
-        int    n_heads    = config.n_heads;
-        int    n_kv_heads = config.n_kv_heads;
+        if (config.use_paged_attention) {
+            // PagedAttention path
+            int num_tokens = pos + 1;
 
-        int   kv_mul = n_heads / n_kv_heads;
-        float scale  = 1.0f / sqrtf(head_dim);
+            // Get layer's paged KV cache
+            size_t layer_cache_offset =
+                layer * config.num_blocks * config.block_size * config.n_kv_heads * config.head_dim;
+            const float *paged_key_ptr   = state.paged_key_cache.data() + layer_cache_offset;
+            const float *paged_value_ptr = state.paged_value_cache.data() + layer_cache_offset;
 
-        // Reset out
-        std::memset(out, 0, n_heads * head_dim * sizeof(float));
+            Attention::paged_attention(out,
+                                       state.q.data(),
+                                       paged_key_ptr,
+                                       paged_value_ptr,
+                                       block_tables[layer].data(),
+                                       state.att.data(),
+                                       num_tokens,
+                                       config.block_size,
+                                       config.head_dim,
+                                       config.n_heads,
+                                       config.n_kv_heads);
+        }
+        else {
+            // Standard attention path
+            int layer_offset = layer * config.max_seq_len * config.n_kv_heads * config.head_dim;
 
-        int layer_offset = layer * config.max_seq_len * n_kv_heads * head_dim;
-
-        for (int h = 0; h < n_heads; h++) {
-            float *q_head   = q + h * head_dim;
-            float *att_head = att + h * config.max_seq_len;
-            int    kv_h     = h / kv_mul;
-
-            // Score
-            for (int t = 0; t <= pos; t++) {
-                float *k_head = state.key_cache.data() + layer_offset + t * n_kv_heads * head_dim + kv_h * head_dim;
-                float  score  = 0.0f;
-                for (int i = 0; i < head_dim; i++) {
-                    score += q_head[i] * k_head[i];
-                }
-                score *= scale;
-                att_head[t] = score;
-            }
-
-            // Softmax
-            float max_val = -1e10; // -INFINITY
-            for (int t = 0; t <= pos; t++) {
-                if (att_head[t] > max_val)
-                    max_val = att_head[t];
-            }
-
-            float sum = 0.0f;
-            for (int t = 0; t <= pos; t++) {
-                att_head[t] = expf(att_head[t] - max_val);
-                sum += att_head[t];
-            }
-
-            for (int t = 0; t <= pos; t++) {
-                att_head[t] /= sum;
-            }
-
-            // Weighted Sum
-            float *out_head = out + h * head_dim;
-            for (int t = 0; t <= pos; t++) {
-                float *v_head = state.value_cache.data() + layer_offset + t * n_kv_heads * head_dim + kv_h * head_dim;
-                float  prob   = att_head[t];
-                for (int i = 0; i < head_dim; i++) {
-                    out_head[i] += prob * v_head[i];
-                }
-            }
+            Attention::standard_attention(out,
+                                          state.q.data(),
+                                          state.key_cache.data() + layer_offset,
+                                          state.value_cache.data() + layer_offset,
+                                          state.att.data(),
+                                          pos,
+                                          config.head_dim,
+                                          config.n_heads,
+                                          config.n_kv_heads,
+                                          config.max_seq_len);
         }
     }
 };
