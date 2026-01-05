@@ -8,6 +8,8 @@
 #include <variant>
 #include <vector>
 
+#include "logger.hpp"
+
 // ============================================================================
 // Argument Parser for nano-vllm (argparse-style)
 // ============================================================================
@@ -74,7 +76,7 @@ public:
             auto it = options_.find(arg);
             if (it != options_.end()) {
                 if (i + 1 >= argc) {
-                    std::cerr << "Error: Option " << arg << " requires a value" << std::endl;
+                    LOG_ERROR("Option ", arg, " requires a value");
                     return false;
                 }
 
@@ -82,7 +84,7 @@ public:
                     it->second.value = parse_value(argv[++i], it->second.default_value);
                 }
                 catch (const std::exception &e) {
-                    std::cerr << "Error: Invalid value for " << arg << ": " << e.what() << std::endl;
+                    LOG_ERROR("Invalid value for ", arg, ": ", e.what());
                     return false;
                 }
             }
@@ -97,13 +99,13 @@ public:
         }
 
         if (!missing.empty()) {
-            std::cerr << "Error: Missing required arguments: ";
+            std::string missing_str = "Missing required arguments: ";
             for (size_t i = 0; i < missing.size(); i++) {
-                std::cerr << missing[i];
+                missing_str += missing[i];
                 if (i < missing.size() - 1)
-                    std::cerr << ", ";
+                    missing_str += ", ";
             }
-            std::cerr << std::endl;
+            LOG_ERROR(missing_str);
             return false;
         }
 

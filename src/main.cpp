@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "argparser.hpp"
+#include "logger.hpp"
 
 // ============================================================================
 // 1. Configuration & Data Structures
@@ -201,8 +202,10 @@ public:
 
     void load(const std::string &path)
     {
+        LOG_INFO("Loading tokenizer: ", path);
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) {
+            LOG_ERROR("Failed to open tokenizer: ", path);
             throw std::runtime_error("Failed to open tokenizer: " + path);
         }
 
@@ -414,7 +417,7 @@ public:
 
     void load(const std::string &path)
     {
-        std::cout << "Loading model: " << path << std::endl;
+        LOG_INFO("Loading model: ", path);
         std::ifstream file(path, std::ios::binary);
         if (!file.is_open()) {
             throw std::runtime_error("Failed to open model file");
@@ -425,8 +428,14 @@ public:
         // Calculate derived
         config.head_dim = config.dim / config.n_heads;
 
-        std::cout << "Config: dim=" << config.dim << " layers=" << config.n_layers << " heads=" << config.n_heads
-                  << " vocab=" << config.vocab_size << std::endl;
+        LOG_INFO("Config: dim=",
+                 config.dim,
+                 " layers=",
+                 config.n_layers,
+                 " heads=",
+                 config.n_heads,
+                 " vocab=",
+                 config.vocab_size);
 
         // Allocate weights
         resize_weights();
@@ -577,7 +586,7 @@ private:
             // We can just copy embedding table or point to it.
             // Since we use vector, we copy.
             weights.lm_head = weights.token_embedding_table;
-            std::cout << "Weights shared: lm_head <- token_embedding" << std::endl;
+            LOG_INFO("Weights shared: lm_head <- token_embedding");
         }
     }
 
@@ -699,9 +708,10 @@ int main(int argc, char **argv)
     LlamaModel model;
     try {
         model.load(model_path);
+        LOG_SUCCESS("Model loaded successfully");
     }
     catch (const std::exception &e) {
-        std::cerr << "Error loading model: " << e.what() << std::endl;
+        LOG_ERROR("Error loading model: ", e.what());
         return 1;
     }
 
@@ -716,13 +726,17 @@ int main(int argc, char **argv)
     }
 
     Tokenizer tokenizer(tokenizer_path, model.config.vocab_size);
-    Sampler   sampler(model.config.vocab_size, temperature, topp, std::time(nullptr));
+    LOG_SUCCESS("Tokenizer loaded successfully");
+
+    Sampler sampler(model.config.vocab_size, temperature, topp, std::time(nullptr));
 
     // 3. Encode Prompt
     std::vector<int> tokens = tokenizer.encode(prompt, true, false);
+    LOG_INFO("Encoded prompt into ", tokens.size(), " tokens");
+    LOG_INFO("Starting generation with temperature=", temperature, " topp=", topp, " steps=", steps);
+    LOG_INFO("Generating...");
 
-    std::cout << "\nGenerating...\n" << std::endl;
-    std::cout << prompt;
+    std::cout << "\n" << prompt;
     std::cout.flush();
 
     // 4. Generation Loop
@@ -764,7 +778,9 @@ int main(int argc, char **argv)
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
             .count();
 
-    std::cout << "\n\nDone. (" << (double)(end_time - start_time) / 1000.0 << "s)" << std::endl;
+    double elapsed = (double)(end_time - start_time) / 1000.0;
+    std::cout << std::endl;
+    LOG_SUCCESS("Generation completed in ", elapsed, " seconds");
 
     return 0;
 }
