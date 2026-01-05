@@ -242,6 +242,36 @@ public:
         Ops::matmul(state.logits.data(), state.x.data(), weights.lm_head.data(), config.dim, config.vocab_size);
     }
 
+    void initialize_paged_attention()
+    {
+        if (!config.use_paged_attention) {
+            return;
+        }
+
+        // Initialize BlockManager
+        block_manager = new BlockManager(config.num_blocks, config.block_size);
+
+        // Initialize block tables for each layer
+        block_tables.resize(config.n_layers);
+
+        // Allocate paged KV cache
+        // Layout: [n_layers, num_blocks, block_size, n_kv_heads, head_dim]
+        size_t paged_cache_size = static_cast<size_t>(config.n_layers) * static_cast<size_t>(config.num_blocks)
+                                * static_cast<size_t>(config.block_size) * static_cast<size_t>(config.n_kv_heads)
+                                * static_cast<size_t>(config.head_dim);
+
+        state.paged_key_cache.resize(paged_cache_size);
+        state.paged_value_cache.resize(paged_cache_size);
+
+        LOG_SUCCESS("PagedAttention initialized: ",
+                    config.num_blocks,
+                    " blocks × ",
+                    config.block_size,
+                    " tokens = ",
+                    config.num_blocks * config.block_size,
+                    " total capacity");
+    }
+
 private:
     void resize_weights()
     {
@@ -338,36 +368,6 @@ private:
 
         state.key_cache.resize(cache_size);
         state.value_cache.resize(cache_size);
-    }
-
-    void initialize_paged_attention()
-    {
-        if (!config.use_paged_attention) {
-            return;
-        }
-
-        // Initialize BlockManager
-        block_manager = new BlockManager(config.num_blocks, config.block_size);
-
-        // Initialize block tables for each layer
-        block_tables.resize(config.n_layers);
-
-        // Allocate paged KV cache
-        // Layout: [n_layers, num_blocks, block_size, n_kv_heads, head_dim]
-        size_t paged_cache_size = static_cast<size_t>(config.n_layers) * static_cast<size_t>(config.num_blocks)
-                                * static_cast<size_t>(config.block_size) * static_cast<size_t>(config.n_kv_heads)
-                                * static_cast<size_t>(config.head_dim);
-
-        state.paged_key_cache.resize(paged_cache_size);
-        state.paged_value_cache.resize(paged_cache_size);
-
-        LOG_SUCCESS("PagedAttention initialized: ",
-                    config.num_blocks,
-                    " blocks × ",
-                    config.block_size,
-                    " tokens = ",
-                    config.num_blocks * config.block_size,
-                    " total capacity");
     }
 
     void attention(int layer, int pos, float *out)
