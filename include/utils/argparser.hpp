@@ -58,7 +58,10 @@ public:
     }
 
     // Add boolean flag (no value required)
-    void add_flag(const std::string &flag, const std::string &help) { flags_[flag] = {help, false}; }
+    void add_flag(const std::string &flag, const std::string &help, bool default_value = false)
+    {
+        flags_[flag] = {help, default_value, default_value};
+    }
 
     // Parse command-line arguments
     bool parse(int argc, char **argv)
@@ -188,7 +191,8 @@ public:
         if (!flags_.empty()) {
             std::cout << "\nFlags:" << std::endl;
             for (const auto &[flag, flag_info] : flags_) {
-                std::cout << "  " << flag << "\t\t" << flag_info.help << std::endl;
+                std::cout << "  " << flag << "\t\t" << flag_info.help
+                          << " (default: " << (flag_info.default_value ? "true" : "false") << ")" << std::endl;
             }
         }
     }
@@ -207,7 +211,8 @@ private:
     struct Flag
     {
         std::string help;
-        bool        value;
+        bool        value;         // Current value
+        bool        default_value; // Default value
     };
 
     std::string                   program_name_;
