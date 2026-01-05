@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "argparser.hpp"
+
 // ============================================================================
 // 1. Configuration & Data Structures
 // ============================================================================
@@ -675,33 +677,25 @@ private:
 
 int main(int argc, char **argv)
 {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <model_path> [options]" << std::endl;
-        std::cerr << "Options:" << std::endl;
-        std::cerr << "  -t <temp>   Temperature (default 1.0)" << std::endl;
-        std::cerr << "  -p <topp>   Top-p (default 0.9)" << std::endl;
-        std::cerr << "  -n <steps>  Steps to generate (default 256)" << std::endl;
-        std::cerr << "  -i <prompt> Input prompt" << std::endl;
+    // Setup argument parser
+    ArgParser parser("nano-vllm: A minimal vLLM implementation in C++");
+    parser.add_positional("model_path", "Path to the model file");
+    parser.add_option<float>("-t", "Temperature for sampling", 1.0f);
+    parser.add_option<float>("-p", "Top-p (nucleus) sampling parameter", 0.9f);
+    parser.add_option<int>("-n", "Number of steps to generate", 256);
+    parser.add_option<std::string>("-i", "Input prompt");
+
+    if (!parser.parse(argc, argv)) {
+        parser.print_usage();
         return 1;
     }
 
-    std::string model_path  = argv[1];
-    float       temperature = 1.0f;
-    float       topp        = 0.9f;
-    int         steps       = 256;
-    std::string prompt      = "Once upon a time";
-
-    for (int i = 2; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "-t" && i + 1 < argc)
-            temperature = std::stof(argv[++i]);
-        else if (arg == "-p" && i + 1 < argc)
-            topp = std::stof(argv[++i]);
-        else if (arg == "-n" && i + 1 < argc)
-            steps = std::stoi(argv[++i]);
-        else if (arg == "-i" && i + 1 < argc)
-            prompt = argv[++i];
-    }
+    // Get parsed arguments
+    std::string model_path  = parser.get_positional();
+    float       temperature = parser.get<float>("-t");
+    float       topp        = parser.get<float>("-p");
+    int         steps       = parser.get<int>("-n");
+    std::string prompt      = parser.get<std::string>("-i");
 
     // 1. Load Model
     LlamaModel model;
