@@ -55,6 +55,15 @@ public:
         options_[flag]    = opt;
     }
 
+    // Add boolean flag (no value needed)
+    void add_flag(const std::string &flag, const std::string &help)
+    {
+        Flag f;
+        f.help       = help;
+        f.value      = false;
+        flags_[flag] = f;
+    }
+
     // Parse command-line arguments
     bool parse(int argc, char **argv)
     {
@@ -72,6 +81,13 @@ public:
         // Parse optional arguments
         for (int i = 2; i < argc; i++) {
             std::string arg = argv[i];
+
+            // Check if it's a flag
+            auto flag_it = flags_.find(arg);
+            if (flag_it != flags_.end()) {
+                flag_it->second.value = true;
+                continue;
+            }
 
             auto it = options_.find(arg);
             if (it != options_.end()) {
@@ -128,6 +144,13 @@ public:
         return std::get<T>(it->second.value.value());
     }
 
+    // Check if flag is set
+    bool has_flag(const std::string &flag) const
+    {
+        auto it = flags_.find(flag);
+        return it != flags_.end() && it->second.value;
+    }
+
     // Print usage information
     void print_usage() const
     {
@@ -161,6 +184,13 @@ public:
                 std::cout << std::endl;
             }
         }
+
+        if (!flags_.empty()) {
+            std::cout << "\nFlags:" << std::endl;
+            for (const auto &[flag, f] : flags_) {
+                std::cout << "  " << flag << "\t\t" << f.help << std::endl;
+            }
+        }
     }
 
 private:
@@ -173,12 +203,19 @@ private:
         bool                       required;
     };
 
+    struct Flag
+    {
+        bool        value;
+        std::string help;
+    };
+
     std::string                   program_name_;
     std::string                   description_;
     std::string                   positional_name_;
     std::string                   positional_help_;
     std::string                   positional_value_;
     std::map<std::string, Option> options_;
+    std::map<std::string, Flag>   flags_;
 
     // Get type name string
     template <typename T> std::string get_type_name() const
