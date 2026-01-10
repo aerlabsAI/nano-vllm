@@ -13,35 +13,50 @@
 #include "utils/path.hpp"
 
 // ============================================================================
+// Program Arguments Configuration
+// ============================================================================
+
+// NOTE:
+// Macro to simplify tuple declaration (used once)
+#define ARGS_LIST path, prompt, temperature, topp, steps, without_paged_attn
+
+class Arguments : public ArgConfig<Arguments>
+{
+public:
+    // NOTE: When adding a new argument, add it to BOTH places:
+    // 1. Declaration below (supports multiple flags with {"-t", "--temperature"} syntax)
+    //    Use nullptr as third parameter for REQUIRED arguments
+    Arg<std::string> path{"path", "Path to model directory or model.bin file"};
+    Arg<std::string> prompt{{"-i", "--prompt"}, "Input prompt", nullptr}; // REQUIRED
+    Arg<float>       temperature{{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
+    Arg<float>       topp{{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
+    Arg<int>         steps{{"-n", "--steps"}, "Number of steps to generate", 256};
+    Arg<bool>        without_paged_attn{"--without-paged-attn", "Disable PagedAttention", false};
+
+    // 2. ARGS_LIST macro above (must match above order)
+    decltype(std::tie(ARGS_LIST)) args_tuple = std::tie(ARGS_LIST);
+};
+
+#undef ARGS_LIST
+
+// ============================================================================
 // Main
 // ============================================================================
 
 int main(int argc, char **argv)
 {
-    // Setup argument parser
+    // Parse arguments using declarative configuration
+    Arguments args;
     ArgParser parser("nano-vllm: A minimal vLLM implementation in C++");
-    parser.add_positional("path", "Path to model directory or model.bin file");
-    parser.add_option<float>("-t", "Temperature for sampling", 1.0f);
-    parser.add_option<float>("-p", "Top-p (nucleus) sampling parameter", 0.9f);
-    parser.add_option<int>("-n", "Number of steps to generate", 256);
-    parser.add_option<std::string>("-i", "Input prompt");
 
-    if (!parser.parse(argc, argv)) {
-        parser.print_usage();
+    if (!args.parse(parser, argc, argv)) {
         return 1;
     }
-
-    // Get parsed arguments
-    std::string input_path  = parser.get_positional();
-    float       temperature = parser.get<float>("-t");
-    float       topp        = parser.get<float>("-p");
-    int         steps       = parser.get<int>("-n");
-    std::string prompt      = parser.get<std::string>("-i");
 
     // 1. Resolve model and tokenizer paths
     std::string model_path, tokenizer_path;
     try {
-        auto paths     = resolve_model_paths(input_path);
+        auto paths     = resolve_model_paths(args.path);
         model_path     = paths.first;
         tokenizer_path = paths.second;
     }
@@ -54,6 +69,18 @@ int main(int argc, char **argv)
     LlamaModel model;
     try {
         model.load(model_path);
+
+        // Configure PagedAttention based on CLI flag
+        model.config.use_paged_attention = !args.without_paged_attn;
+
+        if (model.config.use_paged_attention) {
+            LOG_INFO("Using PagedAttention (block_size=", model.config.block_size, ")");
+            model.initialize_paged_attention();
+        }
+        else {
+            LOG_INFO("Using Standard Attention");
+        }
+
         LOG_SUCCESS("Model loaded successfully");
     }
     catch (const std::exception &e) {
@@ -65,15 +92,15 @@ int main(int argc, char **argv)
     Tokenizer tokenizer(tokenizer_path, model.config.vocab_size);
     LOG_SUCCESS("Tokenizer loaded successfully");
 
-    Sampler sampler(model.config.vocab_size, temperature, topp, std::time(nullptr));
+    Sampler sampler(model.config.vocab_size, args.temperature, args.topp, std::time(nullptr));
 
     // 3. Encode Prompt
-    std::vector<int> tokens = tokenizer.encode(prompt, true, false);
+    std::vector<int> tokens = tokenizer.encode(args.prompt, true, false);
     LOG_INFO("Encoded prompt into ", tokens.size(), " tokens");
-    LOG_INFO("Starting generation with temperature=", temperature, " topp=", topp, " steps=", steps);
+    LOG_INFO("Starting generation with temperature=", args.temperature, " topp=", args.topp, " steps=", args.steps);
     LOG_INFO("Generating...");
 
-    std::cout << "\n" << prompt;
+    std::cout << "\n" << args.prompt.value;
     std::cout.flush();
 
     // 4. Generation Loop
@@ -91,7 +118,7 @@ int main(int argc, char **argv)
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
             .count();
 
-    for (int s = 0; s < steps; s++) {
+    for (int s = 0; s < args.steps; s++) {
         // Forward
         model.forward(token, pos);
 

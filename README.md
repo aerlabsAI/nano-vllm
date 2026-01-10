@@ -6,12 +6,17 @@
 
 ```
 .
-├── src/             # Source code
-│   └── main.cpp     # Single-file LLM inference engine
-├── models/          # Model checkpoints
-├── python_ref/      # Python reference and data
-├── CMakeLists.txt   # CMake configuration
-└── Makefile         # Development commands
+├── src/                   # Source code
+│   └── main.cpp           # Main LLM inference engine
+├── include/               # Header files
+│   ├── core/              # Core components (model, tokenizer, attention, sampler)
+│   ├── ops/               # Operations (activation, linear, normalization, positional)
+│   ├── scheduler/         # Block manager for memory scheduling
+│   └── utils/             # Utilities (logger, argparser, path handler)
+├── models/                # Model checkpoints and tokenizer
+├── docs/                  # Documentation
+├── CMakeLists.txt         # CMake configuration
+└── Makefile               # Development commands
 ```
 
 ## Quick Start
@@ -26,13 +31,14 @@
 
    ```bash
    make clang
-   cmake --build build
    ```
 
 3. **Run**:
 
    ```bash
-   ./build/src_main models/model.bin -i "Once upon a time"
+   cd build
+   make main
+   ./main ../models -i hi
    ```
 
 ## Requirements
