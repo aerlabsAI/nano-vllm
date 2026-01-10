@@ -120,7 +120,7 @@ help:
 	@echo "    lint             - Run clang-tidy to fix code issues"
 	@echo "    format           - Format code with clang-format"
 	@echo "    clang            - Generate CMake build directory (Clang++)"
-	@echo "    clean    - Remove all compiled binaries"
+	@echo "    clean            - Remove all compiled binaries"
 	@echo ""
 	@echo "  Debug mode: Add DEBUG=1 to any build command"
 	@echo "    make clang DEBUG=1    - Clang++ with debug"
