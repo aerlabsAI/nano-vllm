@@ -23,7 +23,7 @@ FILE_ARG = $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 FILE_PATH = $(firstword $(FILE_ARG))
 
 .DEFAULT_GOAL := help
-.PHONY: init lint format clang run clean help
+.PHONY: init lint format clang clean help
 
 # Initialize development environment
 init:
@@ -100,14 +100,6 @@ clang:
 	cmake -S . -B build \
 	$(if $(DEBUG),-DUSE_DEBUG=ON)
 
-# Compile, run, and clean up C++ file
-# Usage: make run example/test.cpp
-run:
-	@if [ -z "$(FILE_PATH)" ]; then echo "Usage: make run <path/to/file.cpp>"; exit 1; fi
-	$(CXX) $(CXX_FLAGS) -o $(basename $(FILE_PATH)) $(FILE_PATH)
-	./$(basename $(FILE_PATH))
-	rm $(basename $(FILE_PATH))
-
 # Clean up all compiled binaries
 # Usage: make clean
 clean:
@@ -128,16 +120,10 @@ help:
 	@echo "    lint             - Run clang-tidy to fix code issues"
 	@echo "    format           - Format code with clang-format"
 	@echo "    clang            - Generate CMake build directory (Clang++)"
+	@echo "    clean    - Remove all compiled binaries"
 	@echo ""
 	@echo "  Debug mode: Add DEBUG=1 to any build command"
 	@echo "    make clang DEBUG=1    - Clang++ with debug"
-	@echo ""
-	@echo "  C++ compilation:"
-	@echo "    run      - Compile, run, and clean up C++ file"
-	@echo "    clean    - Remove all compiled binaries"
-	@echo ""
-	@echo "Usage: make <target> <path/to/file.cpp>"
-	@echo "Example: make run example/test.cpp"
 
 # Catch-all rule to prevent file arguments from being treated as targets
 %:
