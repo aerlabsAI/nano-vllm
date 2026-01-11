@@ -41,6 +41,7 @@ public:
         return -1;
     }
 
+    // TODO: Implement proper memory cleanup to prevent leaks
     // Free a single block
     void free_block(int block_id)
     {
@@ -58,6 +59,7 @@ public:
         num_free_blocks_++;
     }
 
+    // TODO: Use for batch processing or preallocation optimization
     // Allocate multiple blocks for a sequence
     // Returns: vector of physical block IDs
     std::vector<int> allocate_sequence(int num_tokens)
@@ -87,6 +89,7 @@ public:
         return allocated_blocks;
     }
 
+    // TODO: Use for memory cleanup in batch processing
     // Free all blocks in a sequence
     void free_sequence(const std::vector<int> &block_ids)
     {
@@ -94,6 +97,9 @@ public:
             free_block(block_id);
         }
     }
+
+    // TODO: Expose metrics for monitoring (KV cache stats, memory pressure, etc.)
+    // Similar to vLLM's KV cache activation and hit rate logging
 
     // Get number of free blocks
     int get_num_free_blocks() const { return num_free_blocks_; }
