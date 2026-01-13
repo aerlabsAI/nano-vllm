@@ -190,7 +190,7 @@ void attention(int layer, int pos, float *out)
         for (int t = 0; t <= pos; t++) {
             // Linear Access: Base + (Time Step * Stride)
             float *k_head = state.key_cache.data() + layer_offset + t * n_kv_heads * head_dim + kv_h * head_dim;
-            
+
             float score = 0.0f;
             for (int i = 0; i < head_dim; i++) {
                 score += q_head[i] * k_head[i];
@@ -208,6 +208,6 @@ void attention(int layer, int pos, float *out)
 
 The current codebase implements the **Naive Approach** described in Section 1.
 
-1.  **Status**: Functional but memory-inefficient.
-2.  **Fragmentation**: As shown in Section 1.2, this implementation "locks" `max_seq_len` worth of memory for every request, even if only a few tokens are generated.
-3.  **Next Goal**: Refactor `RunState` and `attention` logic to use **Paged Attention**, moving from contiguous `std::vector` to a block-based memory pool and page table lookup, as theoretically described in Sections 1 and 2.
+1. **Status**: Functional but memory-inefficient.
+2. **Fragmentation**: As shown in Section 1.2, this implementation "locks" `max_seq_len` worth of memory for every request, even if only a few tokens are generated.
+3. **Next Goal**: Refactor `RunState` and `attention` logic to use **Paged Attention**, moving from contiguous `std::vector` to a block-based memory pool and page table lookup, as theoretically described in Sections 1 and 2.
