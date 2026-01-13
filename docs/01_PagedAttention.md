@@ -136,100 +136,78 @@ This would be disastrous due to **Prefetcher Stalls** and **TLB Misses**.
 
 ---
 
-## 3. Implementation Details (Nano-vLLM)
+## 3. Current Implementation: Naive Baseline
 
-Located in `src/memory.c` and `kernels/cpu/kernels.c`.
+The current implementation in `include/core/model.hpp` represents the **Naive (Contiguous)** approach. It allocates the maximum possible memory upfront, which is simple but inefficient.
 
-### 3.1. Data Structures (`include/structs.h`)
+### 3.1. Data Structures (`include/core/model.hpp`)
 
-#### A. The Physical Memory Pool (`KVCacheManager`)
+The KV Cache is stored as two large contiguous `std::vector<float>` arrays within the `RunState` struct.
 
-A single massive array representing all available physical memory.
+```cpp
+// Runtime state buffers
+struct RunState
+{
+    // ... (other state variables)
 
-```c
-typedef struct {
-    float* pool_k;
-    float* pool_v;
-    int* free_block_indices; // Stack to track available blocks
-} KVCacheManager;
+    // KV Cache
+    // Layout: [n_layers, max_seq_len, n_kv_heads, head_dim]
+    std::vector<float> key_cache;
+    std::vector<float> value_cache;
+};
 ```
 
-**Memory Pool Visualization**
-The `pool_k` is a flattened 1D array representing a 5D tensor.
+These vectors are resized once during initialization to hold the maximum possible sequence length for all layers:
 
-```
-[ Physical RAM (One Contiguous Array) ]
---------------------------------------------------------------------------------------
-| Block 0      | Block 1      | ... | Block 7      | ... | Block N      |
---------------------------------------------------------------------------------------
-|  (Free)      |  (Seq B)     |     |  (Seq A)     |     |  (Free)      |
---------------------------------------------------------------------------------------
-^              ^                    ^
-Base Ptr       Ptr + Stride         Ptr + 7*Stride
-```
+```cpp
+void resize_run_state()
+{
+    // ...
+    // KV Cache
+    size_t cache_size = static_cast<size_t>(config.n_layers) * static_cast<size_t>(config.max_seq_len)
+                      * static_cast<size_t>(config.n_kv_heads) * static_cast<size_t>(config.head_dim);
 
-**Inside a Single Block (Zoom In)**
-Data is packed tightly for SIMD efficiency.
-
-```
-[ Block 7 Content (allocated to Seq A) ]
--------------------------------------------------------------
-| Token T  | Token T+1 | ... | Token T+15 |
--------------------------------------------------------------
-     |
-     v
-     [ Head 0 | Head 1 | ... | Head K ]
-         |
-         v
-         [ float, float, ... (Contiguous, SIMD Friendly) ]
+    state.key_cache.resize(cache_size);
+    state.value_cache.resize(cache_size);
+}
 ```
 
-#### B. The Page Table (`BlockTable`)
+### 3.2. Address Calculation
 
-```c
-typedef struct {
-    int* block_indices; // Maps logical_block_idx -> physical_block_idx
-    int num_blocks;
-} BlockTable;
-```
+Because the memory is contiguous, we use simple pointer arithmetic (linear addressing) to access the Key/Value vectors. There is no `BlockTable` or virtual-to-physical translation yet.
 
-### 3.2. Address Translation Logic
+```cpp
+void attention(int layer, int pos, float *out)
+{
+    // ...
+    int layer_offset = layer * config.max_seq_len * n_kv_heads * head_dim;
 
-This runs on the CPU for every token generation step.
+    for (int h = 0; h < n_heads; h++) {
+        // ...
+        int kv_h = h / kv_mul; // Handling GQA (Grouped Query Attention)
 
-```c
-// Simplified Logic
-void paged_attention(...) {
-    for (int t = 0; t <= pos; t++) {
-        // 1. Virtual -> Logical Block
-        int logical_block = t / block_size;
-        int block_offset  = t % block_size;
-
-        // 2. Logical Block -> Physical Block (Indirection)
-        int physical_block = block_table->block_indices[logical_block];
-
-        // 3. Physical Block -> RAM Address
-        long offset = get_physical_offset(mgr, physical_block, block_offset, ...);
-        float* k_ptr = mgr->pool_k + offset;
-
-        // 4. Compute (SIMD Friendly Inner Loop)
-        float score = dot_product(q, k_ptr, head_dim);
+        // Score Calculation
+        for (int t = 0; t <= pos; t++) {
+            // Linear Access: Base + (Time Step * Stride)
+            float *k_head = state.key_cache.data() + layer_offset + t * n_kv_heads * head_dim + kv_h * head_dim;
+            
+            float score = 0.0f;
+            for (int i = 0; i < head_dim; i++) {
+                score += q_head[i] * k_head[i];
+            }
+            // ...
+        }
+        // ...
     }
 }
 ```
 
 ---
 
-## 4. Summary & Benefits
+## 4. Summary & Next Steps
 
-1. **Zero-Copy Reorganization**: Forking sequences (e.g., Beam Search) only requires copying the `BlockTable` integers, not the heavy KV data.
-2. **Throughput**: Massive memory savings allow for larger `BATCH_SIZE` (e.g., 4x or 8x concurrent requests).
-3. **GPU Preparation**: This exact logic applies to GPU VRAM and CUDA kernels.
+The current codebase implements the **Naive Approach** described in Section 1.
 
-| Feature | Naive Implementation | Paged Attention (CPU) |
-| :--- | :--- | :--- |
-| **Memory Layout** | Contiguous (Virtual & Physical) | Non-contiguous (Physical) |
-| **Allocation** | Up-front (Max Seq Len) | On-demand (Per Block) |
-| **Access Cost** | Low (Pointer Arithmetic) | Medium (Table Lookup + Stride) |
-| **Memory Efficiency** | Low (High Fragmentation) | High (Near Optimal) |
-| **Hardware Usage** | Simple Prefetching | Requires Cache Awareness |
+1.  **Status**: Functional but memory-inefficient.
+2.  **Fragmentation**: As shown in Section 1.2, this implementation "locks" `max_seq_len` worth of memory for every request, even if only a few tokens are generated.
+3.  **Next Goal**: Refactor `RunState` and `attention` logic to use **Paged Attention**, moving from contiguous `std::vector` to a block-based memory pool and page table lookup, as theoretically described in Sections 1 and 2.
