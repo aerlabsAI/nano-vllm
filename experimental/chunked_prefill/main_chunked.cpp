@@ -20,9 +20,9 @@ public:
     Arg<float>       temperature = {{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
     Arg<float>       topp        = {{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
     Arg<int>         steps       = {{"-n", "--steps"}, "Number of steps to generate", 256};
-    Arg<int>         chunk_size  = {"--chunk-size", "Chunk size for prefill", 16};
-    Arg<std::string> prompt      = {{"-i", "--input"}, "Input prompt", nullptr};
-    Arg<bool>        benchmark   = {"--benchmark", "Show detailed metrics", false};
+    Arg<int> chunk_size        = {"--chunk-size", "Chunk size for prefill batching (0=disable, use token-by-token)", 0};
+    Arg<std::string> prompt    = {{"-i", "--input"}, "Input text prompt", nullptr};
+    Arg<bool>        benchmark = {"--benchmark", "Show detailed metrics", false};
 
     decltype(std::tie(ARGS_LIST)) args_tuple = std::tie(ARGS_LIST);
 };
@@ -68,22 +68,46 @@ int main(int argc, char **argv)
 
     std::vector<int> tokens = tokenizer.encode(args.prompt, true, false);
     LOG_INFO("Encoded prompt into ", tokens.size(), " tokens");
-    LOG_INFO("Chunk size: ", args.chunk_size.get());
 
     std::cout << "\n" << args.prompt.get();
     std::cout.flush();
 
     auto prefill_tokens = std::vector<int>(tokens.begin(), tokens.end() - 1);
-    auto metrics        = model.prefill_chunked(prefill_tokens, args.chunk_size.get());
+
+    ChunkedPrefill::PrefillMetrics metrics;
+    auto                           prefill_start = std::chrono::high_resolution_clock::now();
+
+    if (args.chunk_size.get() > 0) {
+        // Chunked prefill mode
+        LOG_INFO("Using chunked prefill with chunk size: ", args.chunk_size.get());
+        metrics = model.prefill_chunked(prefill_tokens, args.chunk_size.get());
+    }
+    else {
+        // Token-by-token baseline mode
+        LOG_INFO("Using token-by-token prefill (baseline)");
+        for (size_t i = 0; i < prefill_tokens.size(); i++) {
+            model.forward(prefill_tokens[i], static_cast<int>(i));
+        }
+
+        auto prefill_end      = std::chrono::high_resolution_clock::now();
+        metrics.total_time_ms = std::chrono::duration<double, std::milli>(prefill_end - prefill_start).count();
+        metrics.num_chunks    = 0;
+        metrics.total_tokens  = static_cast<int>(prefill_tokens.size());
+        metrics.chunk_size    = 0;
+    }
 
     if (args.benchmark) {
         LOG_INFO("=== Prefill Metrics ===");
         LOG_INFO("Total tokens: ", metrics.total_tokens);
-        LOG_INFO("Num chunks: ", metrics.num_chunks);
-        LOG_INFO("Chunk size: ", metrics.chunk_size);
+        if (metrics.num_chunks > 0) {
+            LOG_INFO("Num chunks: ", metrics.num_chunks);
+            LOG_INFO("Chunk size: ", metrics.chunk_size);
+            LOG_INFO("Avg chunk time: ", metrics.avg_chunk_time_ms, " ms");
+        }
         LOG_INFO("Total time: ", metrics.total_time_ms, " ms");
-        LOG_INFO("Avg chunk time: ", metrics.avg_chunk_time_ms, " ms");
-        LOG_INFO("Throughput: ", metrics.tokens_per_second(), " tokens/sec");
+        if (metrics.total_tokens > 0) {
+            LOG_INFO("Throughput: ", metrics.tokens_per_second(), " tokens/sec");
+        }
     }
 
     int token = tokens.back();
