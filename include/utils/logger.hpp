@@ -34,11 +34,19 @@ private:
     static std::string getFilename(const char *file)
     {
         std::string fullPath(file);
+
         // src/ 이후의 경로만 반환
         size_t srcPos = fullPath.find("/src/");
         if (srcPos != std::string::npos) {
             return fullPath.substr(srcPos + 1); // /src/ → src/
         }
+
+        // include/ 이후의 경로만 반환
+        size_t includePos = fullPath.find("/include/");
+        if (includePos != std::string::npos) {
+            return fullPath.substr(includePos + 1); // /include/ → include/
+        }
+
         return fullPath;
     }
 

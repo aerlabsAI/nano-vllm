@@ -10,29 +10,30 @@
 #include "../../include/utils/path.hpp"
 #include "model_chunked.hpp"
 
+// Arguments configuration using ArgConfig
+struct ChunkedPrefillArgs : public ArgConfig<ChunkedPrefillArgs>
+{
+    Arg<std::string> model_path      = {"path", "Path to model directory or model.bin file"};
+    Arg<float>       temperature     = {{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
+    Arg<float>       topp            = {{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
+    Arg<int>         steps           = {{"-n", "--steps"}, "Number of steps to generate", 256};
+    Arg<int>         chunk_size      = {"--chunk-size", "Chunk size for prefill", 16};
+    Arg<std::string> prompt          = {{"-i", "--input"}, "Input prompt", nullptr};
+    Arg<bool>        benchmark       = {"--benchmark", "Show detailed metrics", false};
+
+    auto args_tuple = std::tie(model_path, temperature, topp, steps, chunk_size, prompt, benchmark);
+};
+
 int main(int argc, char **argv)
 {
-    ArgParser parser("nano-vllm: Chunked Prefill Implementation");
-    parser.add_positional("path", "Path to model directory or model.bin file");
-    parser.add_option<float>("-t", "Temperature for sampling", 1.0f);
-    parser.add_option<float>("-p", "Top-p (nucleus) sampling parameter", 0.9f);
-    parser.add_option<int>("-n", "Number of steps to generate", 256);
-    parser.add_option<int>("--chunk-size", "Chunk size for prefill", 16);
-    parser.add_option<std::string>("-i", "Input prompt");
-    parser.add_flag("--benchmark", "Show detailed metrics");
+    ChunkedPrefillArgs args;
+    ArgParser          parser("nano-vllm: Chunked Prefill Implementation");
 
-    if (!parser.parse(argc, argv)) {
-        parser.print_usage();
+    if (!args.parse(parser, argc, argv)) {
         return 1;
     }
 
-    std::string input_path  = parser.get_positional();
-    float       temperature = parser.get<float>("-t");
-    float       topp        = parser.get<float>("-p");
-    int         steps       = parser.get<int>("-n");
-    int         chunk_size  = parser.get<int>("--chunk-size");
-    std::string prompt      = parser.get<std::string>("-i");
-    bool        benchmark   = parser.has_flag("--benchmark");
+    std::string input_path = args.model_path.get();
 
     std::string model_path, tokenizer_path;
     try {
@@ -58,19 +59,19 @@ int main(int argc, char **argv)
     Tokenizer tokenizer(tokenizer_path, model.config.vocab_size);
     LOG_SUCCESS("Tokenizer loaded successfully");
 
-    Sampler sampler(model.config.vocab_size, temperature, topp, std::time(nullptr));
+    Sampler sampler(model.config.vocab_size, args.temperature, args.topp, std::time(nullptr));
 
-    std::vector<int> tokens = tokenizer.encode(prompt, true, false);
+    std::vector<int> tokens = tokenizer.encode(args.prompt, true, false);
     LOG_INFO("Encoded prompt into ", tokens.size(), " tokens");
-    LOG_INFO("Chunk size: ", chunk_size);
+    LOG_INFO("Chunk size: ", args.chunk_size.get());
 
-    std::cout << "\n" << prompt;
+    std::cout << "\n" << args.prompt.get();
     std::cout.flush();
 
     auto prefill_tokens = std::vector<int>(tokens.begin(), tokens.end() - 1);
-    auto metrics        = model.prefill_chunked(prefill_tokens, chunk_size);
+    auto metrics        = model.prefill_chunked(prefill_tokens, args.chunk_size);
 
-    if (benchmark) {
+    if (args.benchmark) {
         LOG_INFO("=== Prefill Metrics ===");
         LOG_INFO("Total tokens: ", metrics.total_tokens);
         LOG_INFO("Num chunks: ", metrics.num_chunks);
@@ -85,7 +86,7 @@ int main(int argc, char **argv)
 
     auto decode_start = std::chrono::high_resolution_clock::now();
 
-    for (int s = 0; s < steps; s++) {
+    for (int s = 0; s < args.steps; s++) {
         model.forward(token, pos);
 
         int next_token = sampler.sample(model.state.logits.data());
@@ -107,7 +108,7 @@ int main(int argc, char **argv)
     std::cout << std::endl;
     LOG_SUCCESS("Generation completed");
 
-    if (benchmark) {
+    if (args.benchmark) {
         LOG_INFO("=== Decode Metrics ===");
         LOG_INFO("Decode time: ", decode_time, " seconds");
         LOG_INFO("Total time: ", (metrics.total_time_ms / 1000.0 + decode_time), " seconds");
