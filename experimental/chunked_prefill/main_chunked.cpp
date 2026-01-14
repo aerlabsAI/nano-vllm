@@ -74,7 +74,7 @@ int main(int argc, char **argv)
     std::cout.flush();
 
     auto prefill_tokens = std::vector<int>(tokens.begin(), tokens.end() - 1);
-    auto metrics        = model.prefill_chunked(prefill_tokens, args.chunk_size);
+    auto metrics        = model.prefill_chunked(prefill_tokens, args.chunk_size.get());
 
     if (args.benchmark) {
         LOG_INFO("=== Prefill Metrics ===");

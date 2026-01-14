@@ -13,7 +13,7 @@
 
 struct ChunkedRunState
 {
-    int max_chunk_size;
+    int max_chunk_size = 0;
 
     std::vector<float> x_batch;
     std::vector<float> xb_batch;
