@@ -11,18 +11,23 @@
 #include "model_chunked.hpp"
 
 // Arguments configuration using ArgConfig
-struct ChunkedPrefillArgs : public ArgConfig<ChunkedPrefillArgs>
-{
-    Arg<std::string> model_path      = {"path", "Path to model directory or model.bin file"};
-    Arg<float>       temperature     = {{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
-    Arg<float>       topp            = {{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
-    Arg<int>         steps           = {{"-n", "--steps"}, "Number of steps to generate", 256};
-    Arg<int>         chunk_size      = {"--chunk-size", "Chunk size for prefill", 16};
-    Arg<std::string> prompt          = {{"-i", "--input"}, "Input prompt", nullptr};
-    Arg<bool>        benchmark       = {"--benchmark", "Show detailed metrics", false};
+#define ARGS_LIST model_path, temperature, topp, steps, chunk_size, prompt, benchmark
 
-    auto args_tuple = std::tie(model_path, temperature, topp, steps, chunk_size, prompt, benchmark);
+class ChunkedPrefillArgs : public ArgConfig<ChunkedPrefillArgs>
+{
+public:
+    Arg<std::string> model_path  = {"path", "Path to model directory or model.bin file"};
+    Arg<float>       temperature = {{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
+    Arg<float>       topp        = {{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
+    Arg<int>         steps       = {{"-n", "--steps"}, "Number of steps to generate", 256};
+    Arg<int>         chunk_size  = {"--chunk-size", "Chunk size for prefill", 16};
+    Arg<std::string> prompt      = {{"-i", "--input"}, "Input prompt", nullptr};
+    Arg<bool>        benchmark   = {"--benchmark", "Show detailed metrics", false};
+
+    decltype(std::tie(ARGS_LIST)) args_tuple = std::tie(ARGS_LIST);
 };
+
+#undef ARGS_LIST
 
 int main(int argc, char **argv)
 {
