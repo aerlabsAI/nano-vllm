@@ -134,9 +134,32 @@ This would be disastrous due to **Prefetcher Stalls** and **TLB Misses**.
 
 **Conclusion**: We need a `block_size` (e.g., 16 or 32 tokens) large enough to amortize the jump cost, but small enough to minimize internal fragmentation.
 
----
+## 3. Workload Analysis: Prefill vs. Decoding
 
-## 3. Current Implementation: Naive Baseline
+To fully understand the impact of Paged Attention, we must distinguish between the two phases of LLM inference, as they have different hardware bottlenecks.
+
+### 3.1. Prefill Phase (Prompt Processing)
+
+*   **Operation**: Processes all input tokens in parallel to generate the initial KV cache.
+*   **Bottleneck**: **Compute Bound**. The CPU/GPU is saturated by dense Matrix Multiplications (GEMMs) for Q, K, V projections and Attention.
+*   **Paged Attention Impact**:
+    *   **Writes**: We must allocate and write the initial KV cache into non-contiguous blocks.
+    *   **Overhead**: The overhead of block allocation and indirect addressing is usually **negligible** (hidden) compared to the massive computation load.
+    *   **Benefit**: Allows processing longer prompts or larger batches without failing due to fragmentation.
+
+### 3.2. Decoding Phase (Token Generation)
+
+*   **Operation**: Generates one token at a time, autoregressively.
+*   **Bottleneck**: **Memory Bandwidth Bound**. For each new token, the arithmetic intensity is low (Matrix-Vector multiplication). The speed is limited by how fast we can move the *entire* KV cache from RAM to the CPU cores.
+*   **Paged Attention Impact**:
+    *   **Reads**: This is where the "Cost of Indirection" (Section 2.2) is most visible. We are reading gigabytes of data per second.
+    *   **Throughput vs. Latency**:
+        *   *Latency*: Single-request latency might slightly degrade due to non-contiguous reads and prefetcher stalls.
+        *   *Throughput*: System throughput increases significantly. By eliminating fragmentation, we can fit more concurrent requests (larger **Batch Size**) into RAM.
+    *   **Key Insight**: Since decoding is memory-bound, **wasting memory (fragmentation) = wasting bandwidth**. Paged Attention ensures that every byte of bandwidth transfers useful data, not empty padding.
+
+
+## 4. Current Implementation: Naive Baseline
 
 The current implementation in `include/core/model.hpp` represents the **Naive (Contiguous)** approach. It allocates the maximum possible memory upfront, which is simple but inefficient.
 
@@ -204,7 +227,7 @@ void attention(int layer, int pos, float *out)
 
 ---
 
-## 4. Summary & Next Steps
+## 5. Summary & Next Steps
 
 The current codebase implements the **Naive Approach** described in Section 1.
 
