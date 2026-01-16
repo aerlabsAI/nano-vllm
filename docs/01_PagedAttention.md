@@ -140,24 +140,23 @@ To fully understand the impact of Paged Attention, we must distinguish between t
 
 ### 3.1. Prefill Phase (Prompt Processing)
 
-*   **Operation**: Processes all input tokens in parallel to generate the initial KV cache.
-*   **Bottleneck**: **Compute Bound**. The CPU/GPU is saturated by dense Matrix Multiplications (GEMMs) for Q, K, V projections and Attention.
-*   **Paged Attention Impact**:
-    *   **Writes**: We must allocate and write the initial KV cache into non-contiguous blocks.
-    *   **Overhead**: The overhead of block allocation and indirect addressing is usually **negligible** (hidden) compared to the massive computation load.
-    *   **Benefit**: Allows processing longer prompts or larger batches without failing due to fragmentation.
+* **Operation**: Processes all input tokens in parallel to generate the initial KV cache.
+* **Bottleneck**: **Compute Bound**. The CPU/GPU is saturated by dense Matrix Multiplications (GEMMs) for Q, K, V projections and Attention.
+* **Paged Attention Impact**:
+  * **Writes**: We must allocate and write the initial KV cache into non-contiguous blocks.
+  * **Overhead**: The overhead of block allocation and indirect addressing is usually **negligible** (hidden) compared to the massive computation load.
+  * **Benefit**: Allows processing longer prompts or larger batches without failing due to fragmentation.
 
 ### 3.2. Decoding Phase (Token Generation)
 
-*   **Operation**: Generates one token at a time, autoregressively.
-*   **Bottleneck**: **Memory Bandwidth Bound**. For each new token, the arithmetic intensity is low (Matrix-Vector multiplication). The speed is limited by how fast we can move the *entire* KV cache from RAM to the CPU cores.
-*   **Paged Attention Impact**:
-    *   **Reads**: This is where the "Cost of Indirection" (Section 2.2) is most visible. We are reading gigabytes of data per second.
-    *   **Throughput vs. Latency**:
-        *   *Latency*: Single-request latency might slightly degrade due to non-contiguous reads and prefetcher stalls.
-        *   *Throughput*: System throughput increases significantly. By eliminating fragmentation, we can fit more concurrent requests (larger **Batch Size**) into RAM.
-    *   **Key Insight**: Since decoding is memory-bound, **wasting memory (fragmentation) = wasting bandwidth**. Paged Attention ensures that every byte of bandwidth transfers useful data, not empty padding.
-
+* **Operation**: Generates one token at a time, autoregressively.
+* **Bottleneck**: **Memory Bandwidth Bound**. For each new token, the arithmetic intensity is low (Matrix-Vector multiplication). The speed is limited by how fast we can move the *entire* KV cache from RAM to the CPU cores.
+* **Paged Attention Impact**:
+  * **Reads**: This is where the "Cost of Indirection" (Section 2.2) is most visible. We are reading gigabytes of data per second.
+  * **Throughput vs. Latency**:
+    * *Latency*: Single-request latency might slightly degrade due to non-contiguous reads and prefetcher stalls.
+    * *Throughput*: System throughput increases significantly. By eliminating fragmentation, we can fit more concurrent requests (larger **Batch Size**) into RAM.
+  * **Key Insight**: Since decoding is memory-bound, **wasting memory (fragmentation) = wasting bandwidth**. Paged Attention ensures that every byte of bandwidth transfers useful data, not empty padding.
 
 ## 4. Current Implementation: Naive Baseline
 
