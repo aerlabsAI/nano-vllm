@@ -314,11 +314,11 @@ jobs:
             
             // Remove labels for unassigned users
             const activeGroupLabels = [...new Set(assignedUsernames.map(u => assigneeLabels[u]).filter(Boolean))];
-            const labelsToRemove = allGroupLabels.filter(label => 
+            const assigneeLabelsToRemove = allGroupLabels.filter(label =>
               existingLabels.includes(label) && !activeGroupLabels.includes(label)
             );
-            
-            for (const labelToRemove of labelsToRemove) {
+
+            for (const labelToRemove of assigneeLabelsToRemove) {
               await github.rest.issues.removeLabel({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
