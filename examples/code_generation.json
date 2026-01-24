@@ -1,0 +1,28 @@
+{
+  "requests": [
+    {
+      "prompt": "Write a Python function to calculate fibonacci numbers.",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "max_tokens": 150
+    },
+    {
+      "prompt": "Create a C++ class for a binary search tree with insert and search methods.",
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "max_tokens": 250
+    },
+    {
+      "prompt": "Implement quicksort algorithm in JavaScript.",
+      "temperature": 0.6,
+      "top_p": 0.9,
+      "max_tokens": 200
+    },
+    {
+      "prompt": "Write a SQL query to find the top 5 customers by total purchase amount.",
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "max_tokens": 100
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "requests": [
+    {
+      "prompt": "Complete this sentence: The weather today is",
+      "temperature": 0.1,
+      "top_p": 0.9,
+      "max_tokens": 50
+    },
+    {
+      "prompt": "Complete this sentence: The weather today is",
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "max_tokens": 50
+    },
+    {
+      "prompt": "Complete this sentence: The weather today is",
+      "temperature": 1.0,
+      "top_p": 0.9,
+      "max_tokens": 50
+    },
+    {
+      "prompt": "Complete this sentence: The weather today is",
+      "temperature": 1.5,
+      "top_p": 0.9,
+      "max_tokens": 50
+    },
+    {
+      "prompt": "Complete this sentence: The weather today is",
+      "temperature": 2.0,
+      "top_p": 0.9,
+      "max_tokens": 50
+    }
+  ]
+}
