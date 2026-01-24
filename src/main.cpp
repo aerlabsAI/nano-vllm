@@ -11,7 +11,7 @@
 // Program Arguments Configuration
 // ============================================================================
 
-#define ARGS_LIST path, prompt, input_json, temperature, topp, steps, without_paged_attn
+#define ARGS_LIST path, prompt, input_json, max_batch_size, temperature, topp, steps, without_paged_attn
 
 class Arguments : public ArgConfig<Arguments>
 {
@@ -19,6 +19,7 @@ public:
     Arg<std::string> path{"path", "Path to model directory or model.bin file"};
     Arg<std::string> prompt{{"-i", "--prompt"}, "Input prompt", ""};
     Arg<std::string> input_json{"--input-json", "Path to JSON file with benchmark requests", ""};
+    Arg<int>         max_batch_size{{"-b", "--max-batch-size"}, "Maximum batch size for continuous batching", 1};
     Arg<float>       temperature{{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
     Arg<float>       topp{{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
     Arg<int>         steps{{"-n", "--steps"}, "Number of steps to generate", 256};
@@ -91,7 +92,7 @@ int main(int argc, char **argv)
     LOG_SUCCESS("Tokenizer loaded successfully");
 
     if (has_input_json) {
-        return run_json_benchmark(model, tokenizer, args.input_json);
+        return run_json_benchmark(model, tokenizer, args.input_json, args.max_batch_size);
     }
     else {
         return run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);

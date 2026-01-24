@@ -8,9 +8,11 @@
 #include "core/model.hpp"
 #include "core/sampler.hpp"
 #include "core/tokenizer.hpp"
+#include "scheduler/batched_runner.hpp"
 #include "scheduler/benchmark.hpp"
 #include "scheduler/request.hpp"
 #include "scheduler/request_processor.hpp"
+#include "scheduler/scheduler.hpp"
 #include "utils/json_parser.hpp"
 #include "utils/logger.hpp"
 
@@ -63,21 +65,11 @@ inline int run_single_prompt(LlamaModel        &model,
 }
 
 // ============================================================================
-// JSON Benchmark Mode
+// JSON Benchmark Mode - Sequential
 // ============================================================================
 
-inline int run_json_benchmark(LlamaModel &model, Tokenizer &tokenizer, const std::string &json_path)
+inline int run_json_sequential(LlamaModel &model, Tokenizer &tokenizer, std::vector<Request> &requests)
 {
-    std::vector<Request> requests;
-    try {
-        requests = json::parse_benchmark_input(json_path);
-        LOG_SUCCESS("Loaded ", requests.size(), " requests from JSON");
-    }
-    catch (const std::exception &e) {
-        LOG_ERROR("Failed to parse JSON: ", e.what());
-        return 1;
-    }
-
     RequestProcessor processor(model, tokenizer);
     BenchmarkMetrics metrics;
 
@@ -99,7 +91,55 @@ inline int run_json_benchmark(LlamaModel &model, Tokenizer &tokenizer, const std
     metrics.total_time_ms = std::chrono::duration<double, std::milli>(total_end - total_start).count();
 
     metrics.print();
+    return 0;
+}
+
+// ============================================================================
+// JSON Benchmark Mode - Batched (Continuous Batching)
+// ============================================================================
+
+inline int run_json_batched(LlamaModel &model, Tokenizer &tokenizer, std::vector<Request> &requests, int max_batch_size)
+{
+    SchedulerConfig config;
+    config.max_batch_size = max_batch_size;
+
+    Scheduler     scheduler(config);
+    BatchedRunner runner(model, tokenizer);
+
+    LOG_INFO("Running in batched mode with max_batch_size=", max_batch_size);
+
+    BenchmarkMetrics metrics = runner.run_all(requests, scheduler);
+
+    metrics.print();
+    return 0;
+}
+
+// ============================================================================
+// JSON Benchmark Mode - Entry Point
+// ============================================================================
+
+inline int
+run_json_benchmark(LlamaModel &model, Tokenizer &tokenizer, const std::string &json_path, int max_batch_size = 1)
+{
+    std::vector<Request> requests;
+    try {
+        requests = json::parse_benchmark_input(json_path);
+        LOG_SUCCESS("Loaded ", requests.size(), " requests from JSON");
+    }
+    catch (const std::exception &e) {
+        LOG_ERROR("Failed to parse JSON: ", e.what());
+        return 1;
+    }
+
+    int result;
+    if (max_batch_size <= 1) {
+        LOG_INFO("Running in sequential mode");
+        result = run_json_sequential(model, tokenizer, requests);
+    }
+    else {
+        result = run_json_batched(model, tokenizer, requests, max_batch_size);
+    }
 
     LOG_SUCCESS("Benchmark completed");
-    return 0;
+    return result;
 }
