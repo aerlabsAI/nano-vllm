@@ -146,5 +146,8 @@ int main(int argc, char **argv)
     std::cout << std::endl;
     LOG_SUCCESS("Generation completed in ", elapsed, " seconds");
 
+    // Print KV cache memory comparison metrics
+    model.print_metrics(pos);
+
     return 0;
 }
