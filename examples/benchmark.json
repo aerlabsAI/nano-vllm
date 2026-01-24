@@ -1,0 +1,22 @@
+{
+  "requests": [
+    {
+      "prompt": "What is the capital of France?",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 50
+    },
+    {
+      "prompt": "Explain quantum computing in simple terms.",
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "max_tokens": 100
+    },
+    {
+      "prompt": "Write a haiku about programming.",
+      "temperature": 1.0,
+      "top_p": 0.9,
+      "max_tokens": 30
+    }
+  ]
+}
