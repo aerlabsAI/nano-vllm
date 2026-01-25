@@ -1,0 +1,16 @@
+{
+  "requests": [
+    {
+      "prompt": "Write a detailed explanation of how neural networks work, including the mathematical foundations, backpropagation algorithm, and common architectures used in deep learning.",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 500
+    },
+    {
+      "prompt": "Describe the history of artificial intelligence from the 1950s to present day, covering major milestones, breakthrough algorithms, and influential researchers in the field.",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 500
+    }
+  ]
+}

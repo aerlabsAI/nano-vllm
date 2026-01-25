@@ -1,0 +1,34 @@
+{
+  "requests": [
+    {
+      "prompt": "Hi",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "Hello",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "Hey there",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "Good morning",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "How are you",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    }
+  ]
+}

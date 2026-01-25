@@ -1,0 +1,28 @@
+{
+  "requests": [
+    {
+      "prompt": "Write a short story about a robot learning to paint.",
+      "temperature": 1.2,
+      "top_p": 0.95,
+      "max_tokens": 200
+    },
+    {
+      "prompt": "Create a poem about the ocean at sunset.",
+      "temperature": 1.1,
+      "top_p": 0.9,
+      "max_tokens": 100
+    },
+    {
+      "prompt": "Imagine a future where humans live on Mars. Describe a typical day.",
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "max_tokens": 250
+    },
+    {
+      "prompt": "Write a haiku about coding at midnight.",
+      "temperature": 1.0,
+      "top_p": 0.9,
+      "max_tokens": 30
+    }
+  ]
+}
