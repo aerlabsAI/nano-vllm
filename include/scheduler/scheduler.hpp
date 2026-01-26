@@ -49,6 +49,11 @@ struct ScheduledBatch
 
 // ============================================================================
 // Scheduler - Manages request queue and batch formation
+//
+// Implements vLLM-style continuous batching with:
+// - Decode-first policy: prioritize decode requests for lower latency
+// - Single-type batches: prefill OR decode, never mixed
+// - Token budget chunking: prefill chunk = min(remaining_prompt, budget_left)
 // ============================================================================
 
 class Scheduler
@@ -90,6 +95,7 @@ public:
         }
 
         // Second priority: prefill requests from pending queue
+        // vLLM-style chunked prefill: chunk_size = min(remaining_prompt, token_budget_left)
         while (!pending_queue_.empty()) {
             if (batch.size() >= config_.max_batch_size)
                 break;
