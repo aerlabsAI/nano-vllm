@@ -70,19 +70,18 @@ public:
             LOG_INFO("Iteration ",
                      iteration,
                      ": ",
-                     batch.prefill_requests.size(),
-                     " prefill, ",
-                     batch.decode_requests.size(),
-                     " decode (simulated)");
+                     batch.size(),
+                     " requests (",
+                     (batch.is_prefill ? "prefill" : "decode"),
+                     "), ",
+                     batch.total_scheduled_tokens,
+                     " tokens (simulated)");
 
-            // Process prefill requests completely (prefill + all decode)
-            for (auto *req : batch.prefill_requests) {
+            // Process requests completely (prefill + all decode)
+            for (auto *req : batch.requests) {
                 process_request_complete(req);
                 scheduler.finish_request(req);
             }
-
-            // Decode requests should be empty in this simulation
-            // (we complete each request fully before moving to next)
 
             iteration++;
         }
