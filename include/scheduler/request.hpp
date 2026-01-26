@@ -53,6 +53,36 @@ struct SamplingParams
 };
 
 // ============================================================================
+// Finish Reason - Why a request completed
+// ============================================================================
+
+enum class FinishReason {
+    None,      // Not finished yet
+    Eos,       // Hit end-of-sequence token
+    MaxTokens, // Hit max_tokens limit
+    MaxSeqLen, // Hit model's max sequence length
+    OOM        // Out of memory (no blocks available)
+};
+
+inline const char *finish_reason_to_string(FinishReason reason)
+{
+    switch (reason) {
+    case FinishReason::None:
+        return "NONE";
+    case FinishReason::Eos:
+        return "EOS";
+    case FinishReason::MaxTokens:
+        return "MAX_TOKENS";
+    case FinishReason::MaxSeqLen:
+        return "MAX_SEQ_LEN";
+    case FinishReason::OOM:
+        return "OOM";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+// ============================================================================
 // Request - Represents a single inference request
 // ============================================================================
 
@@ -66,12 +96,18 @@ struct Request
     SamplingParams   sampling_params;
 
     // State
-    RequestStatus    status      = RequestStatus::PENDING;
-    int              current_pos = 0;
+    RequestStatus    status              = RequestStatus::PENDING;
+    int              current_pos         = 0;  // Current position in sequence (for positional encoding)
+    int              num_computed_tokens = 0;  // Total tokens processed (prompt + generated)
+    int              prefill_cursor      = 0;  // Progress tracker for chunked prefill
+    int              last_token          = -1; // Last generated token (for decode phase)
+    FinishReason     finished_reason     = FinishReason::None;
     std::vector<int> generated_tokens;
 
     // Memory management (for PagedAttention)
-    std::vector<int> block_ids;
+    // Per-request block tables: [n_layers][logical_blocks] -> physical_block_id
+    // Each request owns its own block tables for KV cache isolation
+    std::vector<std::vector<int>> block_tables;
 
     // Output
     std::string output_text;
@@ -94,6 +130,11 @@ struct Request
     bool is_finished() const { return status == RequestStatus::FINISHED || status == RequestStatus::FAILED; }
 
     bool can_generate_more() const { return num_generated_tokens() < sampling_params.max_tokens; }
+
+    // Helper methods for continuous batching scheduler
+    bool is_prefill() const { return prefill_cursor < num_prompt_tokens(); }
+    int  remaining_prompt() const { return num_prompt_tokens() - prefill_cursor; }
+    int  remaining_total() const { return total_tokens() - num_computed_tokens; }
 };
 
 // ============================================================================

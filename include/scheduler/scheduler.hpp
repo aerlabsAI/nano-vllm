@@ -23,27 +23,37 @@ struct SchedulerConfig
 
 struct ScheduledBatch
 {
-    std::vector<Request *> prefill_requests; // Requests in prefill phase
-    std::vector<Request *> decode_requests;  // Requests in decode phase
+    std::vector<Request *> requests;
+    std::vector<int>       scheduled_tokens;
+    bool                   is_prefill             = false;
+    int                    total_scheduled_tokens = 0;
 
-    int total_prefill_tokens() const
+    int  size() const { return static_cast<int>(requests.size()); }
+    bool empty() const { return requests.empty(); }
+
+    void add(Request *req, int tokens)
     {
-        int total = 0;
-        for (auto *req : prefill_requests) {
-            total += req->num_prompt_tokens();
-        }
-        return total;
+        requests.push_back(req);
+        scheduled_tokens.push_back(tokens);
+        total_scheduled_tokens += tokens;
     }
 
-    int total_decode_tokens() const { return static_cast<int>(decode_requests.size()); }
-
-    int total_requests() const { return static_cast<int>(prefill_requests.size() + decode_requests.size()); }
-
-    bool empty() const { return prefill_requests.empty() && decode_requests.empty(); }
+    void clear()
+    {
+        requests.clear();
+        scheduled_tokens.clear();
+        is_prefill             = false;
+        total_scheduled_tokens = 0;
+    }
 };
 
 // ============================================================================
 // Scheduler - Manages request queue and batch formation
+//
+// Implements vLLM-style continuous batching with:
+// - Decode-first policy: prioritize decode requests for lower latency
+// - Single-type batches: prefill OR decode, never mixed
+// - Token budget chunking: prefill chunk = min(remaining_prompt, budget_left)
 // ============================================================================
 
 class Scheduler
@@ -62,41 +72,50 @@ public:
         LOG_INFO("Scheduler: Added request ", request->id, " to queue");
     }
 
-    // Schedule next batch for execution
+    // Schedule next batch for execution (decode-first policy, single-type batches)
     ScheduledBatch schedule()
     {
         ScheduledBatch batch;
 
-        // First, add decode requests (they have priority - shorter)
+        // First priority: decode requests (1 token each)
         for (auto *req : running_requests_) {
             if (req->status == RequestStatus::DECODING) {
-                if (batch.total_requests() >= config_.max_batch_size)
+                if (batch.size() >= config_.max_batch_size)
                     break;
-                batch.decode_requests.push_back(req);
+                if (batch.total_scheduled_tokens + 1 > config_.max_tokens_per_batch)
+                    break;
+                batch.add(req, 1);
             }
         }
 
-        // Then, add prefill requests from pending queue
-        int remaining_slots = config_.max_batch_size - batch.total_requests();
-        // P2 fix: Include decode tokens in budget calculation
-        int current_tokens = batch.total_prefill_tokens() + batch.total_decode_tokens();
+        // If we have decode requests, return decode batch
+        if (!batch.empty()) {
+            batch.is_prefill = false;
+            return batch;
+        }
 
-        while (!pending_queue_.empty() && remaining_slots > 0) {
-            Request *req        = pending_queue_.front();
-            int      req_tokens = req->num_prompt_tokens();
-
-            // Check token budget (prefill + decode)
-            if (current_tokens + req_tokens > config_.max_tokens_per_batch) {
+        // Second priority: prefill requests from pending queue
+        // vLLM-style chunked prefill: chunk_size = min(remaining_prompt, token_budget_left)
+        while (!pending_queue_.empty()) {
+            if (batch.size() >= config_.max_batch_size)
                 break;
-            }
+
+            Request *req         = pending_queue_.front();
+            int      remaining   = req->remaining_prompt();
+            int      budget_left = config_.max_tokens_per_batch - batch.total_scheduled_tokens;
+            int      chunk_size  = std::min(remaining, budget_left);
+
+            if (chunk_size <= 0)
+                break;
 
             pending_queue_.pop();
             req->status = RequestStatus::PREFILLING;
             running_requests_.push_back(req);
-            batch.prefill_requests.push_back(req);
+            batch.add(req, chunk_size);
+        }
 
-            current_tokens += req_tokens;
-            remaining_slots--;
+        if (!batch.empty()) {
+            batch.is_prefill = true;
         }
 
         return batch;

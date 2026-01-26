@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -17,10 +18,10 @@
 
 namespace json {
 
-// JSON value types
-using JsonValue =
-    std::variant<std::nullptr_t, bool, double, std::string, std::vector<struct JsonObject>, struct JsonObject>;
-using JsonArray = std::vector<struct JsonObject>;
+struct JsonObject;
+using JsonObjectPtr = std::unique_ptr<JsonObject>;
+using JsonArray     = std::vector<JsonObject>;
+using JsonValue     = std::variant<std::nullptr_t, bool, double, std::string, JsonArray, JsonObjectPtr>;
 
 struct JsonObject
 {
@@ -85,8 +86,8 @@ struct JsonObject
         auto              it = data.find(key);
         if (it == data.end())
             return empty;
-        if (auto *val = std::get_if<JsonObject>(&it->second))
-            return *val;
+        if (auto *val = std::get_if<JsonObjectPtr>(&it->second))
+            return **val;
         return empty;
     }
 };
@@ -195,7 +196,7 @@ private:
             return parse_string();
         }
         else if (c == '{') {
-            return parse_object();
+            return std::make_unique<JsonObject>(parse_object());
         }
         else if (c == '[') {
             return parse_array();
