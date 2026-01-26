@@ -103,7 +103,12 @@ private:
                 if (token_idx >= req->num_prompt_tokens())
                     break;
 
-                model_.forward(req->prompt_tokens[token_idx], req->current_pos);
+                if (model_.config.use_paged_attention) {
+                    model_.forward_with_request(req->prompt_tokens[token_idx], req->current_pos, req);
+                }
+                else {
+                    model_.forward(req->prompt_tokens[token_idx], req->current_pos);
+                }
                 req->current_pos++;
                 req->num_computed_tokens++;
             }
@@ -132,7 +137,12 @@ private:
 
             auto decode_start = std::chrono::high_resolution_clock::now();
 
-            model_.forward(req->last_token, req->current_pos);
+            if (model_.config.use_paged_attention) {
+                model_.forward_with_request(req->last_token, req->current_pos, req);
+            }
+            else {
+                model_.forward(req->last_token, req->current_pos);
+            }
             int next_token = samplers_[req->id]->sample(model_.state.logits.data());
 
             req->generated_tokens.push_back(next_token);
@@ -174,6 +184,11 @@ private:
                  "): ",
                  req->num_generated_tokens(),
                  " tokens");
+
+        if (model_.config.use_paged_attention && model_.block_manager != nullptr) {
+            model_.block_manager->free_request(req->id);
+        }
+
         scheduler.finish_request(req);
     }
 

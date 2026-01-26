@@ -105,7 +105,9 @@ struct Request
     std::vector<int> generated_tokens;
 
     // Memory management (for PagedAttention)
-    std::vector<int> block_ids;
+    // Per-request block tables: [n_layers][logical_blocks] -> physical_block_id
+    // Each request owns its own block tables for KV cache isolation
+    std::vector<std::vector<int>> block_tables;
 
     // Output
     std::string output_text;

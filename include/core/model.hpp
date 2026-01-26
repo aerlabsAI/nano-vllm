@@ -13,6 +13,7 @@
 #include "ops/normalization.hpp"
 #include "ops/positional.hpp"
 #include "scheduler/block_manager.hpp"
+#include "scheduler/request.hpp"
 #include "utils/logger.hpp"
 
 // ============================================================================
@@ -248,14 +249,18 @@ public:
             return;
         }
 
-        // Initialize BlockManager
+        if (block_manager != nullptr) {
+            delete block_manager;
+            block_manager = nullptr;
+        }
+
         block_manager = new BlockManager(config.num_blocks, config.block_size);
 
-        // Initialize block tables for each layer
         block_tables.resize(config.n_layers);
+        for (auto &table : block_tables) {
+            table.clear();
+        }
 
-        // Allocate paged KV cache
-        // Layout: [n_layers, num_blocks, block_size, n_kv_heads, head_dim]
         size_t paged_cache_size = static_cast<size_t>(config.n_layers) * static_cast<size_t>(config.num_blocks)
                                 * static_cast<size_t>(config.block_size) * static_cast<size_t>(config.n_kv_heads)
                                 * static_cast<size_t>(config.head_dim);
@@ -270,6 +275,83 @@ public:
                     " tokens = ",
                     config.num_blocks * config.block_size,
                     " total capacity");
+    }
+
+    // Forward pass with per-request KV cache isolation
+    // Enables continuous batching by using req->block_tables instead of global block_tables
+    void forward_with_request(int token, int pos, Request *req)
+    {
+        if (req->block_tables.empty()) {
+            req->block_tables.resize(config.n_layers);
+        }
+
+        const float *content_row = weights.token_embedding_table.data() + token * config.dim;
+        std::memcpy(state.x.data(), content_row, config.dim * sizeof(float));
+
+        for (int i = 0; i < config.n_layers; i++) {
+            auto &l = weights.layers[i];
+
+            Ops::rms_norm(state.xb.data(), state.x.data(), l.rms_att_weight.data(), config.dim);
+
+            Ops::matmul(state.q.data(), state.xb.data(), l.wq.data(), config.dim, config.n_heads * config.head_dim);
+            Ops::matmul(state.k.data(), state.xb.data(), l.wk.data(), config.dim, config.n_kv_heads * config.head_dim);
+            Ops::matmul(state.v.data(), state.xb.data(), l.wv.data(), config.dim, config.n_kv_heads * config.head_dim);
+
+            Ops::apply_rope(state.q.data(),
+                            state.k.data(),
+                            pos,
+                            config.head_dim,
+                            config.n_heads,
+                            config.n_kv_heads,
+                            config.rope_theta);
+
+            // Allocate new block when reaching block boundary
+            if (pos % config.block_size == 0) {
+                int new_block = block_manager->allocate_block_for_request(req->id);
+                if (new_block == -1) {
+                    throw std::runtime_error("Out of memory: no free blocks for request");
+                }
+                req->block_tables[i].push_back(new_block);
+            }
+
+            // Map logical block to physical block using per-request block table
+            int logical_block  = pos / config.block_size;
+            int block_offset   = pos % config.block_size;
+            int physical_block = req->block_tables[i][logical_block];
+
+            // Calculate KV cache pointers: [layer][block][position][head][dim]
+            size_t layer_cache_offset = i * config.num_blocks * config.block_size * config.n_kv_heads * config.head_dim;
+            size_t block_cache_offset = physical_block * config.block_size * config.n_kv_heads * config.head_dim;
+            size_t pos_cache_offset   = block_offset * config.n_kv_heads * config.head_dim;
+
+            float *k_cache_ptr =
+                state.paged_key_cache.data() + layer_cache_offset + block_cache_offset + pos_cache_offset;
+            float *v_cache_ptr =
+                state.paged_value_cache.data() + layer_cache_offset + block_cache_offset + pos_cache_offset;
+
+            std::memcpy(k_cache_ptr, state.k.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+            std::memcpy(v_cache_ptr, state.v.data(), config.n_kv_heads * config.head_dim * sizeof(float));
+
+            attention_with_request(i, pos, state.xb2.data(), req);
+
+            Ops::matmul(state.xb.data(), state.xb2.data(), l.wo.data(), config.n_heads * config.head_dim, config.dim);
+
+            for (int j = 0; j < config.dim; j++)
+                state.x[j] += state.xb[j];
+
+            Ops::rms_norm(state.xb.data(), state.x.data(), l.rms_ffn_weight.data(), config.dim);
+            Ops::matmul(state.hb.data(), state.xb.data(), l.w_gate.data(), config.dim, config.hidden_dim);
+            Ops::matmul(state.hb2.data(), state.xb.data(), l.w_up.data(), config.dim, config.hidden_dim);
+            Ops::swiglu(state.hb.data(), state.hb.data(), state.hb2.data(), config.hidden_dim);
+            Ops::matmul(state.xb.data(), state.hb.data(), l.w_down.data(), config.hidden_dim, config.dim);
+
+            for (int j = 0; j < config.dim; j++)
+                state.x[j] += state.xb[j];
+        }
+
+        Ops::rms_norm(state.x.data(), state.x.data(), weights.rms_final_weight.data(), config.dim);
+
+        Ops::matmul(state.logits.data(), state.x.data(), weights.lm_head.data(), config.dim, config.vocab_size);
     }
 
 private:
@@ -373,10 +455,8 @@ private:
     void attention(int layer, int pos, float *out)
     {
         if (config.use_paged_attention) {
-            // PagedAttention path
             int num_tokens = pos + 1;
 
-            // Get layer's paged KV cache
             size_t layer_cache_offset =
                 layer * config.num_blocks * config.block_size * config.n_kv_heads * config.head_dim;
             const float *paged_key_ptr   = state.paged_key_cache.data() + layer_cache_offset;
@@ -395,7 +475,6 @@ private:
                                        config.n_kv_heads);
         }
         else {
-            // Standard attention path
             int layer_offset = layer * config.max_seq_len * config.n_kv_heads * config.head_dim;
 
             Attention::standard_attention(out,
@@ -409,5 +488,26 @@ private:
                                           config.n_kv_heads,
                                           config.max_seq_len);
         }
+    }
+
+    void attention_with_request(int layer, int pos, float *out, Request *req)
+    {
+        int num_tokens = pos + 1;
+
+        size_t layer_cache_offset = layer * config.num_blocks * config.block_size * config.n_kv_heads * config.head_dim;
+        const float *paged_key_ptr   = state.paged_key_cache.data() + layer_cache_offset;
+        const float *paged_value_ptr = state.paged_value_cache.data() + layer_cache_offset;
+
+        Attention::paged_attention(out,
+                                   state.q.data(),
+                                   paged_key_ptr,
+                                   paged_value_ptr,
+                                   req->block_tables[layer].data(),
+                                   state.att.data(),
+                                   num_tokens,
+                                   config.block_size,
+                                   config.head_dim,
+                                   config.n_heads,
+                                   config.n_kv_heads);
     }
 };
