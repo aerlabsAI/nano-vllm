@@ -14,6 +14,7 @@
 #include "ops/positional.hpp"
 #include "scheduler/block_manager.hpp"
 #include "utils/logger.hpp"
+#include "utils/metrics.hpp"
 
 // ============================================================================
 // Llama Model Configuration & Data Structures
@@ -110,6 +111,9 @@ public:
     // PagedAttention components
     BlockManager                 *block_manager = nullptr;
     std::vector<std::vector<int>> block_tables; // [n_layers][logical_blocks]
+
+    // Metrics for memory comparison
+    KVCacheMetrics metrics;
 
     void load(const std::string &path)
     {
@@ -270,6 +274,22 @@ public:
                     " tokens = ",
                     config.num_blocks * config.block_size,
                     " total capacity");
+    }
+
+    // Print KV cache memory comparison metrics
+    void print_metrics(int final_position)
+    {
+        if (!config.use_paged_attention) {
+            return;
+        }
+
+        // Get number of blocks used (from first layer's block table)
+        int blocks_used = block_tables.empty() ? 0 : static_cast<int>(block_tables[0].size());
+
+        metrics.set_sequence_length(final_position);
+        metrics.set_blocks_used(blocks_used);
+        metrics.print_comparison(
+            config.n_layers, config.n_kv_heads, config.head_dim, config.max_seq_len, config.block_size);
     }
 
 private:

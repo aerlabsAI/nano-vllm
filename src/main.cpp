@@ -97,4 +97,17 @@ int main(int argc, char **argv)
     else {
         return run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);
     }
+
+    long end_time =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
+
+    double elapsed = (double)(end_time - start_time) / 1000.0;
+    std::cout << std::endl;
+    LOG_SUCCESS("Generation completed in ", elapsed, " seconds");
+
+    // Print KV cache memory comparison metrics
+    model.print_metrics(pos);
+
+    return 0;
 }
