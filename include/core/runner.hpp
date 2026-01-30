@@ -8,10 +8,12 @@
 #include "core/model.hpp"
 #include "core/sampler.hpp"
 #include "core/tokenizer.hpp"
+#include "scheduler/async_request_queue.hpp"
 #include "scheduler/batched_runner.hpp"
 #include "scheduler/benchmark.hpp"
 #include "scheduler/request.hpp"
 #include "scheduler/request_processor.hpp"
+#include "scheduler/request_submitter.hpp"
 #include "scheduler/scheduler.hpp"
 #include "utils/json_parser.hpp"
 #include "utils/logger.hpp"
@@ -115,11 +117,43 @@ inline int run_json_batched(LlamaModel &model, Tokenizer &tokenizer, std::vector
 }
 
 // ============================================================================
+// JSON Benchmark Mode - Async (Dynamic Request Arrivals)
+// ============================================================================
+
+inline int run_json_async(LlamaModel &model, Tokenizer &tokenizer, std::vector<Request> &requests, int max_batch_size)
+{
+    SchedulerConfig config;
+    config.max_batch_size = max_batch_size;
+
+    Scheduler         scheduler(config);
+    BatchedRunner     runner(model, tokenizer);
+    AsyncRequestQueue async_queue;
+
+    LOG_INFO("Running in async mode with max_batch_size=", max_batch_size);
+
+    // Start producer thread that submits requests with arrival delays
+    RequestSubmitter submitter(requests, async_queue);
+    std::thread      producer_thread = submitter.start();
+
+    // Run consumer loop (main thread processes requests as they arrive)
+    BenchmarkMetrics metrics = runner.run_async(requests, scheduler, async_queue);
+
+    // Wait for producer to finish
+    producer_thread.join();
+
+    metrics.print();
+    return 0;
+}
+
+// ============================================================================
 // JSON Benchmark Mode - Entry Point
 // ============================================================================
 
-inline int
-run_json_benchmark(LlamaModel &model, Tokenizer &tokenizer, const std::string &json_path, int max_batch_size = 1)
+inline int run_json_benchmark(LlamaModel        &model,
+                              Tokenizer         &tokenizer,
+                              const std::string &json_path,
+                              int                max_batch_size = 1,
+                              bool               async_mode     = false)
 {
     std::vector<Request> requests;
     try {
@@ -132,7 +166,10 @@ run_json_benchmark(LlamaModel &model, Tokenizer &tokenizer, const std::string &j
     }
 
     int result;
-    if (max_batch_size <= 1) {
+    if (async_mode && max_batch_size > 1) {
+        result = run_json_async(model, tokenizer, requests, max_batch_size);
+    }
+    else if (max_batch_size <= 1) {
         LOG_INFO("Running in sequential mode");
         result = run_json_sequential(model, tokenizer, requests);
     }
