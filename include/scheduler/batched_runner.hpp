@@ -9,6 +9,7 @@
 #include "core/model.hpp"
 #include "core/sampler.hpp"
 #include "core/tokenizer.hpp"
+#include "scheduler/async_request_queue.hpp"
 #include "scheduler/benchmark.hpp"
 #include "scheduler/request.hpp"
 #include "scheduler/scheduler.hpp"
@@ -54,6 +55,89 @@ public:
             ScheduledBatch batch = scheduler.schedule();
             if (batch.empty())
                 break;
+
+            LOG_INFO("Iteration ",
+                     iteration,
+                     ": ",
+                     batch.size(),
+                     " requests (",
+                     (batch.is_prefill ? "prefill" : "decode"),
+                     "), ",
+                     batch.total_scheduled_tokens,
+                     " tokens");
+
+            if (batch.is_prefill) {
+                run_prefill_batch(batch, scheduler);
+            }
+            else {
+                run_decode_batch(batch, scheduler);
+            }
+
+            iteration++;
+        }
+
+        auto total_end        = std::chrono::high_resolution_clock::now();
+        metrics.total_time_ms = std::chrono::duration<double, std::milli>(total_end - total_start).count();
+
+        for (const auto &req : requests) {
+            metrics.add_request(req);
+        }
+
+        samplers_.clear();
+        return metrics;
+    }
+
+    /**
+     * @brief Run with async request arrival simulation.
+     *
+     * Polls AsyncRequestQueue for newly arrived requests and processes them
+     * using continuous batching. Continues until all requests are submitted
+     * and processed.
+     *
+     * @param requests Vector of requests (for tokenization setup)
+     * @param scheduler Scheduler instance
+     * @param async_queue Async queue receiving requests from producer thread
+     * @return Benchmark metrics
+     */
+    BenchmarkMetrics run_async(std::vector<Request> &requests, Scheduler &scheduler, AsyncRequestQueue &async_queue)
+    {
+        BenchmarkMetrics metrics;
+
+        // Pre-tokenize all requests and setup samplers
+        for (auto &req : requests) {
+            req.prompt_tokens = tokenizer_.encode(req.prompt, true, false);
+            samplers_[req.id] = std::make_unique<Sampler>(model_.config.vocab_size,
+                                                          req.sampling_params.temperature,
+                                                          req.sampling_params.top_p,
+                                                          static_cast<unsigned long long>(std::time(nullptr)) + req.id);
+        }
+
+        reset_model_state();
+        auto total_start = std::chrono::high_resolution_clock::now();
+
+        int iteration = 0;
+        while (scheduler.has_work() || !async_queue.is_done()) {
+            // Poll for newly arrived requests
+            auto pending = async_queue.get_pending();
+            for (auto *req : pending) {
+                scheduler.add_request(req);
+                LOG_INFO("Added request ", req->id, " to scheduler");
+            }
+
+            // If no work and not done, wait for more requests
+            if (!scheduler.has_work()) {
+                if (async_queue.is_done()) {
+                    break;
+                }
+                // Wait with timeout for new requests
+                async_queue.wait_for_requests(10);
+                continue;
+            }
+
+            // Schedule and process batch
+            ScheduledBatch batch = scheduler.schedule();
+            if (batch.empty())
+                continue;
 
             LOG_INFO("Iteration ",
                      iteration,

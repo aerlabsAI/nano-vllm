@@ -113,8 +113,9 @@ struct Request
     std::string output_text;
 
     // Metrics
-    double prefill_time_ms = 0.0;
-    double decode_time_ms  = 0.0;
+    double prefill_time_ms  = 0.0;
+    double decode_time_ms   = 0.0;
+    int    arrival_delay_ms = 0; // Delay before this request "arrives" (for async simulation)
     int    num_prompt_tokens() const { return static_cast<int>(prompt_tokens.size()); }
     int    num_generated_tokens() const { return static_cast<int>(generated_tokens.size()); }
     int    total_tokens() const { return num_prompt_tokens() + num_generated_tokens(); }
