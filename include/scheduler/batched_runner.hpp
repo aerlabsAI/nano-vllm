@@ -116,7 +116,7 @@ public:
         auto total_start = std::chrono::high_resolution_clock::now();
 
         int iteration = 0;
-        while (scheduler.has_work() || !async_queue.is_done()) {
+        while (scheduler.has_work() || !async_queue.is_done() || async_queue.has_pending()) {
             // Poll for newly arrived requests
             auto pending = async_queue.get_pending();
             for (auto *req : pending) {
@@ -126,7 +126,7 @@ public:
 
             // If no work and not done, wait for more requests
             if (!scheduler.has_work()) {
-                if (async_queue.is_done()) {
+                if (async_queue.is_done() && !async_queue.has_pending()) {
                     break;
                 }
                 // Wait with timeout for new requests
