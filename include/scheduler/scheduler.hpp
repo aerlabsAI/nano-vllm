@@ -94,7 +94,25 @@ public:
             return batch;
         }
 
-        // Second priority: prefill requests from pending queue
+        // Second priority: continue prefill requests already in running set.
+        // This is required for chunked prefill when prompt length > token budget.
+        for (auto *req : running_requests_) {
+            if (req->status != RequestStatus::PREFILLING)
+                continue;
+            if (batch.size() >= config_.max_batch_size)
+                break;
+
+            int remaining   = req->remaining_prompt();
+            int budget_left = config_.max_tokens_per_batch - batch.total_scheduled_tokens;
+            int chunk_size  = std::min(remaining, budget_left);
+
+            if (chunk_size <= 0)
+                break;
+
+            batch.add(req, chunk_size);
+        }
+
+        // Third priority: admit new prefill requests from pending queue
         // vLLM-style chunked prefill: chunk_size = min(remaining_prompt, token_budget_left)
         while (!pending_queue_.empty()) {
             if (batch.size() >= config_.max_batch_size)

@@ -102,6 +102,12 @@ inline int run_json_sequential(LlamaModel &model, Tokenizer &tokenizer, std::vec
 
 inline int run_json_batched(LlamaModel &model, Tokenizer &tokenizer, std::vector<Request> &requests, int max_batch_size)
 {
+    if (!model.config.use_paged_attention && max_batch_size > 1) {
+        LOG_WARNING("Non-paged attention uses a shared KV cache; interleaved batching is unsafe. "
+                    "Falling back to sequential mode.");
+        return run_json_sequential(model, tokenizer, requests);
+    }
+
     SchedulerConfig config;
     config.max_batch_size = max_batch_size;
 
@@ -122,6 +128,12 @@ inline int run_json_batched(LlamaModel &model, Tokenizer &tokenizer, std::vector
 
 inline int run_json_async(LlamaModel &model, Tokenizer &tokenizer, std::vector<Request> &requests, int max_batch_size)
 {
+    if (!model.config.use_paged_attention) {
+        LOG_WARNING("Async interleaved batching requires paged attention for KV isolation. "
+                    "Falling back to sequential mode (arrival_delay_ms is ignored).");
+        return run_json_sequential(model, tokenizer, requests);
+    }
+
     SchedulerConfig config;
     config.max_batch_size = max_batch_size;
 
