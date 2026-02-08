@@ -310,17 +310,20 @@ inline std::vector<Request> parse_benchmark_input(const std::string &filepath)
 
     int request_id = 0;
     for (const auto &req_obj : requests) {
-        std::string prompt      = req_obj.get_string("prompt", "");
-        float       temperature = req_obj.get_float("temperature", 1.0f);
-        float       top_p       = req_obj.get_float("top_p", 0.9f);
-        int         max_tokens  = req_obj.get_int("max_tokens", 256);
+        std::string prompt           = req_obj.get_string("prompt", "");
+        float       temperature      = req_obj.get_float("temperature", 1.0f);
+        float       top_p            = req_obj.get_float("top_p", 0.9f);
+        int         max_tokens       = req_obj.get_int("max_tokens", 256);
+        int         arrival_delay_ms = req_obj.get_int("arrival_delay_ms", 0);
 
         if (prompt.empty()) {
             throw std::runtime_error("Request " + std::to_string(request_id) + " has empty prompt");
         }
 
         SamplingParams params(temperature, top_p, max_tokens);
-        result.emplace_back(request_id++, prompt, params);
+        Request        req(request_id++, prompt, params);
+        req.arrival_delay_ms = arrival_delay_ms;
+        result.push_back(std::move(req));
     }
 
     return result;
