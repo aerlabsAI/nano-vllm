@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -17,10 +18,10 @@
 
 namespace json {
 
-// JSON value types
-using JsonValue =
-    std::variant<std::nullptr_t, bool, double, std::string, std::vector<struct JsonObject>, struct JsonObject>;
-using JsonArray = std::vector<struct JsonObject>;
+struct JsonObject;
+using JsonObjectPtr = std::unique_ptr<JsonObject>;
+using JsonArray     = std::vector<JsonObject>;
+using JsonValue     = std::variant<std::nullptr_t, bool, double, std::string, JsonArray, JsonObjectPtr>;
 
 struct JsonObject
 {
@@ -85,8 +86,8 @@ struct JsonObject
         auto              it = data.find(key);
         if (it == data.end())
             return empty;
-        if (auto *val = std::get_if<JsonObject>(&it->second))
-            return *val;
+        if (auto *val = std::get_if<JsonObjectPtr>(&it->second))
+            return **val;
         return empty;
     }
 };
@@ -195,7 +196,7 @@ private:
             return parse_string();
         }
         else if (c == '{') {
-            return parse_object();
+            return std::make_unique<JsonObject>(parse_object());
         }
         else if (c == '[') {
             return parse_array();
@@ -309,17 +310,20 @@ inline std::vector<Request> parse_benchmark_input(const std::string &filepath)
 
     int request_id = 0;
     for (const auto &req_obj : requests) {
-        std::string prompt      = req_obj.get_string("prompt", "");
-        float       temperature = req_obj.get_float("temperature", 1.0f);
-        float       top_p       = req_obj.get_float("top_p", 0.9f);
-        int         max_tokens  = req_obj.get_int("max_tokens", 256);
+        std::string prompt           = req_obj.get_string("prompt", "");
+        float       temperature      = req_obj.get_float("temperature", 1.0f);
+        float       top_p            = req_obj.get_float("top_p", 0.9f);
+        int         max_tokens       = req_obj.get_int("max_tokens", 256);
+        int         arrival_delay_ms = req_obj.get_int("arrival_delay_ms", 0);
 
         if (prompt.empty()) {
             throw std::runtime_error("Request " + std::to_string(request_id) + " has empty prompt");
         }
 
         SamplingParams params(temperature, top_p, max_tokens);
-        result.emplace_back(request_id++, prompt, params);
+        Request        req(request_id++, prompt, params);
+        req.arrival_delay_ms = arrival_delay_ms;
+        result.push_back(std::move(req));
     }
 
     return result;
