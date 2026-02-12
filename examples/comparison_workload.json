@@ -1,0 +1,28 @@
+{
+  "requests": [
+    {
+      "prompt": "What is machine learning?",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 30
+    },
+    {
+      "prompt": "Explain the concept of neural networks in simple terms.",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 40
+    },
+    {
+      "prompt": "Hello!",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "Write a short poem about the ocean and the stars above it.",
+      "temperature": 0.9,
+      "top_p": 0.95,
+      "max_tokens": 50
+    }
+  ]
+}
