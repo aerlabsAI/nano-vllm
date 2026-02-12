@@ -4,6 +4,7 @@
 #include "core/runner.hpp"
 #include "core/tokenizer.hpp"
 #include "utils/argparser.hpp"
+#include "utils/benchmark_result.hpp"
 #include "utils/logger.hpp"
 #include "utils/path.hpp"
 
@@ -11,7 +12,7 @@
 // Program Arguments Configuration
 // ============================================================================
 
-#define ARGS_LIST path, prompt, input_json, max_batch_size, async_mode, temperature, topp, steps, without_paged_attn
+#define ARGS_LIST path, prompt, input_json, max_batch_size, async_mode, temperature, topp, steps, without_paged_attn, save_results
 
 class Arguments : public ArgConfig<Arguments>
 {
@@ -25,6 +26,7 @@ public:
     Arg<float>       topp{{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
     Arg<int>         steps{{"-n", "--steps"}, "Number of steps to generate", 256};
     Arg<bool>        without_paged_attn{"--without-paged-attn", "Disable PagedAttention", false};
+    Arg<std::string> save_results{"--save-results", "Save benchmark results to JSON file", ""};
 
     decltype(std::tie(ARGS_LIST)) args_tuple = std::tie(ARGS_LIST);
 };
@@ -92,10 +94,29 @@ int main(int argc, char **argv)
     Tokenizer tokenizer(tokenizer_path, model.config.vocab_size);
     LOG_SUCCESS("Tokenizer loaded successfully");
 
-    if (has_input_json) {
-        return run_json_benchmark(model, tokenizer, args.input_json, args.max_batch_size, args.async_mode);
+    BenchmarkResult result;
+    try {
+        if (has_input_json) {
+            result = run_json_benchmark(model, tokenizer, args.input_json, args.max_batch_size, args.async_mode);
+        }
+        else {
+            result = run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);
+        }
     }
-    else {
-        return run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);
+    catch (const std::exception &e) {
+        LOG_ERROR("Benchmark failed: ", e.what());
+        return 1;
     }
+
+    if (!args.save_results.value.empty()) {
+        if (result.save(args.save_results)) {
+            LOG_SUCCESS("Results saved to ", args.save_results.value);
+        }
+        else {
+            LOG_ERROR("Failed to save results to ", args.save_results.value);
+            return 1;
+        }
+    }
+
+    return 0;
 }
