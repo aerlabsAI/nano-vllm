@@ -293,11 +293,16 @@ inline BenchmarkResult build_result(const BenchmarkMetrics &metrics,
     // Calculate memory metrics
     if (model_config.use_paged_attention) {
         // Count total blocks used across all requests
+        // In sequential mode, blocks are freed after each request, so block_tables may be empty.
+        // In that case, estimate peak per-request block usage from sequence length.
         int total_blocks_used = 0;
         for (const auto &req : requests) {
             if (!req.block_tables.empty()) {
-                // All layers use the same number of logical blocks; use layer 0
                 total_blocks_used += static_cast<int>(req.block_tables[0].size());
+            }
+            else {
+                int seq_len = req.num_prompt_tokens() + req.num_generated_tokens();
+                total_blocks_used += (seq_len + model_config.block_size - 1) / model_config.block_size;
             }
         }
         int paged_tokens = total_blocks_used * model_config.block_size;
