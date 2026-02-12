@@ -35,11 +35,16 @@ nano-vllm/
 │   ├── scheduler/      # Batch scheduling
 │   │   ├── scheduler.hpp
 │   │   ├── request.hpp
+│   │   ├── request_processor.hpp
 │   │   ├── block_manager.hpp
-│   │   └── batched_runner.hpp
+│   │   ├── batched_runner.hpp
+│   │   └── benchmark.hpp
 │   └── utils/          # Utilities
 │       ├── logger.hpp
-│       └── metrics.hpp
+│       ├── metrics.hpp
+│       ├── json_parser.hpp
+│       ├── argparser.hpp
+│       └── path.hpp
 └── src/
     └── main.cpp
 ```
@@ -48,7 +53,7 @@ nano-vllm/
 
 ## 3. Core Inference Flow
 
-### 3.1. Request Lifecycle
+LLM inference consists of two phases. The **Prefill Phase** processes all prompt tokens to build the initial KV cache. The **Decode Phase** then generates tokens one at a time, autoregressively.
 
 ```
 User Prompt → Tokenize → [Prefill Phase] → [Decode Phase] → Detokenize → Output
@@ -57,27 +62,10 @@ User Prompt → Tokenize → [Prefill Phase] → [Decode Phase] → Detokenize �
                          prompt tokens         token at a time
 ```
 
-**Two Phases of Inference:**
-
-1. **Prefill Phase**: Process all prompt tokens in parallel, build initial KV cache
-2. **Decode Phase**: Generate tokens one at a time, autoregressively
-
-### 3.2. Request States
+Each request transitions through states defined in `include/scheduler/request.hpp`: `PENDING → PREFILLING → DECODING → FINISHED` (or `FAILED`). The `RequestProcessor` class (`include/scheduler/request_processor.hpp`) handles the complete lifecycle for a single request:
 
 ```cpp
-enum class RequestStatus {
-    PENDING,     // Waiting in queue
-    PREFILLING,  // Processing prompt tokens
-    DECODING,    // Generating output tokens
-    FINISHED,    // Completed successfully
-    FAILED       // Failed with error
-};
-```
-
-### 3.3. Single Request Processing
-
-```cpp
-// RequestProcessor handles the complete lifecycle
+// RequestProcessor handles the complete lifecycle (simplified)
 void process(Request &request) {
     // 1. Tokenize prompt
     request.prompt_tokens = tokenizer_.encode(request.prompt, true, false);
@@ -302,17 +290,21 @@ void resize_run_state()
 
 Because the memory is contiguous, we use simple pointer arithmetic (linear addressing) to access the Key/Value vectors. There is no `BlockTable` or virtual-to-physical translation yet.
 
+The implementation also handles **Grouped Query Attention (GQA)**, where `n_kv_heads < n_heads`. Multiple query heads share the same K/V head, computed as `kv_h = h / kv_mul` where `kv_mul = n_heads / n_kv_heads`. For example, Llama 2 70B uses 64 query heads with 8 KV heads (`kv_mul = 8`), reducing KV cache size by 8x compared to standard Multi-Head Attention.
+
 ```cpp
 void attention(int layer, int pos, float *out)
 {
     // ...
+    int   kv_mul = n_heads / n_kv_heads;         // GQA multiplier
+    float scale  = 1.0f / sqrtf(head_dim);       // Scaled Dot-Product Attention
     int layer_offset = layer * config.max_seq_len * n_kv_heads * head_dim;
 
     for (int h = 0; h < n_heads; h++) {
         // ...
-        int kv_h = h / kv_mul; // Handling GQA (Grouped Query Attention)
+        int kv_h = h / kv_mul; // Map query head to shared KV head
 
-        // Score Calculation
+        // Score Calculation: Q * K^T / sqrt(d_k)
         for (int t = 0; t <= pos; t++) {
             // Linear Access: Base + (Time Step * Stride)
             float *k_head = state.key_cache.data() + layer_offset + t * n_kv_heads * head_dim + kv_h * head_dim;
@@ -321,8 +313,10 @@ void attention(int layer, int pos, float *out)
             for (int i = 0; i < head_dim; i++) {
                 score += q_head[i] * k_head[i];
             }
-            // ...
+            score *= scale;
+            att_head[t] = score;
         }
+        // Softmax + Weighted sum: softmax(Q*K^T/sqrt(d_k)) * V
         // ...
     }
 }
@@ -334,29 +328,44 @@ void attention(int layer, int pos, float *out)
 
 ### 8.1. BlockManager
 
+The `BlockManager` (`include/scheduler/block_manager.hpp`) manages physical block allocation with thread-safe per-request tracking:
+
 ```cpp
 class BlockManager {
     int num_blocks_;              // Total physical blocks
     int block_size_;              // Tokens per block
     std::vector<bool> free_blocks_;  // Track free blocks
+    int num_free_blocks_;         // Fast free count
+    mutable std::mutex mutex_;    // Thread safety
 
     // Per-request block tracking
     std::unordered_map<int, std::vector<int>> request_blocks_;
 
-    // Allocate blocks for a request
-    std::vector<int> allocate_for_request(int request_id, int num_tokens) {
+public:
+    // Allocate a single block (returns -1 if OOM)
+    int allocate_block();
+
+    // Allocate multiple blocks for a token sequence (with rollback on failure)
+    std::vector<int> allocate_sequence(int num_tokens) {
         int num_blocks_needed = (num_tokens + block_size_ - 1) / block_size_;
-        // Find and allocate free blocks...
+        // Find and allocate free blocks, rollback if insufficient...
         return allocated_block_ids;
     }
 
+    // Thread-safe per-request allocation
+    std::vector<int> allocate_for_request(int request_id, int num_tokens);
+    int allocate_block_for_request(int request_id);
+
     // Free all blocks when request completes
     void free_request(int request_id) {
+        std::lock_guard<std::mutex> lock(mutex_);
         for (int block_id : request_blocks_[request_id]) {
-            free_blocks_[block_id] = true;
+            free_block_internal(block_id);
         }
         request_blocks_.erase(request_id);
     }
+
+    float get_utilization() const;  // 0.0 to 1.0
 };
 ```
 
@@ -381,29 +390,40 @@ float* k_ptr = key_cache + physical_block * block_size * n_kv_heads * head_dim
 ```cpp
 void paged_attention(float* out, const float* q,
                      const float* key_cache, const float* value_cache,
-                     const int* block_table, int num_tokens, int block_size, ...) {
+                     const int* block_table, float* att_scores,
+                     int num_tokens, int block_size,
+                     int head_dim, int n_heads, int n_kv_heads) {
+
+    int   kv_mul = n_heads / n_kv_heads;
+    float scale  = 1.0f / sqrtf(head_dim);
 
     for (int h = 0; h < n_heads; h++) {
-        // Score calculation with block table lookup
+        int kv_h = h / kv_mul;
+
+        // Score calculation: Q * K^T / sqrt(d_k) with block table lookup
         for (int t = 0; t < num_tokens; t++) {
             int logical_block  = t / block_size;
             int block_offset   = t % block_size;
             int physical_block = block_table[logical_block];
 
-            // Access K at physical location
             const float* k_head = key_cache
                 + physical_block * block_size * n_kv_heads * head_dim
                 + block_offset * n_kv_heads * head_dim
                 + kv_h * head_dim;
 
-            // Compute attention score...
+            float score = 0.0f;
+            for (int i = 0; i < head_dim; i++) {
+                score += q_head[i] * k_head[i];
+            }
+            score *= scale;
+            att_head[t] = score;
         }
 
         // Softmax...
 
         // Weighted sum with same block table lookup for V
         for (int t = 0; t < num_tokens; t++) {
-            // Similar physical address calculation for value cache
+            // Same block table lookup for value cache
         }
     }
 }
@@ -413,15 +433,22 @@ void paged_attention(float* out, const float* q,
 
 ## 9. Memory Savings Analysis
 
+The `KVCacheMetrics` class (`include/utils/metrics.hpp`) tracks and compares memory usage between the two approaches:
+
 ```cpp
 class KVCacheMetrics {
+public:
+    void set_sequence_length(int len);
+    void set_blocks_used(int blocks);
+
+    // KV Cache = n_layers × seq_tokens × n_kv_heads × head_dim × sizeof(float) × 2
     static size_t calculate_kv_cache_bytes(int n_layers, int seq_tokens,
                                            int n_kv_heads, int head_dim) {
-        // KV Cache = n_layers × seq_tokens × n_kv_heads × head_dim × sizeof(float) × 2
         return n_layers * seq_tokens * n_kv_heads * head_dim * sizeof(float) * 2;
     }
 
-    void print_comparison(...) {
+    void print_comparison(int n_layers, int n_kv_heads, int head_dim,
+                          int max_seq_len, int block_size) const {
         // Standard Attention: reserves full max_seq_len
         size_t standard_memory = calculate_kv_cache_bytes(n_layers, max_seq_len, ...);
 
@@ -429,7 +456,7 @@ class KVCacheMetrics {
         int paged_tokens = blocks_used_ * block_size;
         size_t paged_memory = calculate_kv_cache_bytes(n_layers, paged_tokens, ...);
 
-        // Typical savings: 40-90% depending on actual vs. max sequence length
+        // Print formatted comparison table with savings percentage
     }
 };
 ```
