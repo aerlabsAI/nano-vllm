@@ -6,7 +6,9 @@
 
 ## 1. Introduction
 
-[Part 1](./Part1_CoreArchitecture_PagedAttention.md) covered how PagedAttention solves memory fragmentation for individual requests. But real LLM serving must handle **multiple concurrent requests** efficiently. This part covers:
+[Part 1](./Part1_CoreArchitecture_PagedAttention.md) covered how PagedAttention replaces contiguous KV cache allocation with block-based memory management, eliminating both internal and external fragmentation. By using a `BlockManager` to allocate fixed-size physical blocks on demand and a block table for logical-to-physical address translation, PagedAttention enables near-100% memory utilization at the cost of occasional cache misses at block boundaries.
+
+But solving memory fragmentation for individual requests is only half the story. Real LLM serving must handle **multiple concurrent requests** efficiently. This part covers:
 
 1. **Continuous Batching**: Process requests at iteration-level, not request-level
 2. **Chunked Prefill**: Prevent long prompts from blocking decode requests
@@ -71,7 +73,29 @@ Iteration 120: B finishes → Slot freed → New request E joins
 
 **Key Insight**: Requests can **join** and **leave** the batch at any iteration.
 
-### 3.2. Request States in Continuous Batching
+### 3.2. Continuous Batching Visualization
+
+Compare with the static batching waste from Section 2.2:
+
+```
+Iteration  1   10   20   30   40   50   60   ...  200
+           ├────┼────┼────┼────┼────┼────┼────...──┤
+
+Request A: [████████████████████████]
+Request B: [███████████████]
+Request C: [████████████████████████████████████████████████████]
+Request D:                          [████████████████████████████]  ← Joins when A finishes
+Request E:                                   [██████████████████████████]  ← Joins when B finishes
+
+Active Batch Size:
+           [  3  ][  3  ][  3  ][  3  ][  3  ][  3  ][  3  ]...
+                                        ^      ^
+                                        D in   E in
+```
+
+No wasted slots: when a request finishes, its slot is immediately reused by the next pending request.
+
+### 3.3. Request States in Continuous Batching
 
 ```cpp
 enum class RequestStatus {
@@ -93,7 +117,7 @@ PENDING → PREFILLING → DECODING → FINISHED
    └─→ Waiting in queue until scheduler picks it up
 ```
 
-### 3.3. Scheduler Implementation
+### 3.4. Scheduler Implementation
 
 ```cpp
 struct SchedulerConfig {
@@ -117,7 +141,7 @@ class Scheduler {
         }
 
         // Priority 2: Prefill requests (new from queue)
-        int remaining_slots = max_batch_size - batch.total_requests();
+        int remaining_slots = config_.max_batch_size - batch.total_requests();
         int current_tokens = batch.total_prefill_tokens() + batch.total_decode_tokens();
 
         while (!pending_queue_.empty() && remaining_slots > 0) {
@@ -141,7 +165,7 @@ class Scheduler {
 };
 ```
 
-### 3.4. Why Decode Gets Priority
+### 3.5. Why Decode Gets Priority
 
 Decode requests produce **1 token per iteration**. Prefill requests consume **many tokens** (the entire prompt). Prioritizing decode:
 
@@ -261,7 +285,42 @@ Iteration 8:  [████] chunk 8 + [●●●] decode tokens
 2. **Bounded Latency**: Decode requests never wait more than chunk_size tokens
 3. **Better Utilization**: Mix long prompts with decode tokens
 
-### 6.3. Chunk Size Trade-off
+### 6.3. Conceptual Implementation
+
+> **Note**: Chunked prefill is not yet implemented in the current codebase. The scheduler (`include/scheduler/scheduler.hpp`) processes each prefill request's entire prompt in one batch. The following shows how the scheduler would be extended to support chunking.
+
+```cpp
+// Conceptual extension to Scheduler::schedule()
+while (!pending_queue_.empty() && remaining_slots > 0) {
+    Request* req = pending_queue_.front();
+
+    // Calculate how many tokens remain for this request's prefill
+    int remaining_prompt = req->num_prompt_tokens() - req->prefill_progress;
+    int chunk_tokens = std::min(remaining_prompt, chunk_size);
+
+    // Check token budget
+    if (current_tokens + chunk_tokens > max_tokens_per_batch) break;
+
+    if (req->prefill_progress == 0) {
+        // First chunk: move from pending to running
+        pending_queue_.pop();
+        running_requests_.push_back(req);
+    }
+
+    batch.prefill_requests.push_back({req, req->prefill_progress, chunk_tokens});
+    req->prefill_progress += chunk_tokens;
+
+    // If all prompt tokens scheduled, transition to DECODING next iteration
+    if (req->prefill_progress >= req->num_prompt_tokens()) {
+        req->status = RequestStatus::DECODING;
+    }
+
+    current_tokens += chunk_tokens;
+    remaining_slots--;
+}
+```
+
+### 6.4. Chunk Size Trade-off
 
 | Chunk Size           | Prefill Efficiency          | Decode Latency              |
 | -------------------- | --------------------------- | --------------------------- |
@@ -321,7 +380,9 @@ while (!pending_queue_.empty() && remaining_slots > 0) {
 //   3. Model architecture changes
 
 class BatchedRunner {
-    void run_all(std::vector<Request>& requests, Scheduler& scheduler) {
+    BenchmarkMetrics run_all(std::vector<Request>& requests, Scheduler& scheduler) {
+        BenchmarkMetrics metrics;
+
         // Encode all prompts and add to scheduler
         for (auto& req : requests) {
             req.prompt_tokens = tokenizer_.encode(req.prompt, true, false);
@@ -347,6 +408,12 @@ class BatchedRunner {
 
             iteration++;
         }
+
+        // Collect metrics from completed requests
+        for (const auto& req : requests) {
+            metrics.add_request(req);
+        }
+        return metrics;
     }
 };
 ```
@@ -365,6 +432,8 @@ Current implementation processes each request **completely** before moving to ne
 
 ### 9.1. Key Metrics
 
+The `BenchmarkMetrics` struct (`include/scheduler/benchmark.hpp`) collects per-request timing data via `add_request()` (defined in `include/scheduler/request_processor.hpp`):
+
 ```cpp
 struct BenchmarkMetrics {
     int total_requests = 0;
@@ -375,9 +444,12 @@ struct BenchmarkMetrics {
     double total_time_ms = 0.0;
 
     // Derived metrics
-    double avg_ttft_ms() const;        // Average Time to First Token
-    double avg_tpot_ms() const;        // Average Time Per Output Token
-    double throughput_tokens_per_sec() const;  // System throughput
+    double prefill_tokens_per_sec() const;   // Prefill throughput
+    double decode_tokens_per_sec() const;    // Decode throughput
+    double overall_tokens_per_sec() const;   // End-to-end throughput
+
+    void add_request(const Request &request); // Accumulate per-request metrics
+    void print() const;                       // Print formatted results
 };
 ```
 
@@ -385,13 +457,18 @@ struct BenchmarkMetrics {
 
 nano-vLLM includes various test scenarios in `examples/`:
 
-| Scenario            | Description           | Focus               |
-| ------------------- | --------------------- | ------------------- |
-| `simple.json`       | Single short request  | Baseline            |
-| `short_burst.json`  | Many short requests   | Throughput          |
-| `long_context.json` | Long prompts          | Prefill efficiency  |
-| `mixed_length.json` | Varied prompt lengths | Scheduling fairness |
-| `stress_test.json`  | High concurrency      | System limits       |
+| Scenario                | Description            | Focus                     |
+| ----------------------- | ---------------------- | ------------------------- |
+| `simple.json`           | Single short request   | Baseline                  |
+| `short_burst.json`      | Many short requests    | Throughput                |
+| `long_context.json`     | Long prompts           | Prefill efficiency        |
+| `mixed_length.json`     | Varied prompt lengths  | Scheduling fairness       |
+| `stress_test.json`      | High concurrency       | System limits             |
+| `code_generation.json`  | Code generation tasks  | Long-form output          |
+| `conversation.json`     | Multi-turn dialogue    | Conversational workloads  |
+| `creative_writing.json` | Creative writing tasks | Open-ended generation     |
+| `technical_qa.json`     | Technical Q&A          | Short output, long input  |
+| `temperature_test.json` | Sampling variations    | Temperature/top-p effects |
 
 ### 9.3. What to Measure
 
@@ -399,6 +476,15 @@ nano-vLLM includes various test scenarios in `examples/`:
 2. **TPOT (Time Per Output Token)**: Streaming smoothness
 3. **Throughput**: Tokens generated per second system-wide
 4. **Memory Utilization**: KV cache efficiency (via BlockManager)
+
+### 9.4. Benchmark Results
+
+> **TBI (To Be Implemented)**: Benchmark results will be added after true continuous batching is implemented. Expected comparisons include:
+>
+> - Sequential vs. Batched throughput across different batch sizes
+> - Standard Attention vs. PagedAttention memory utilization
+> - Prefill/Decode throughput breakdown per scenario
+> - Impact of chunk size on TPOT variance
 
 ---
 
