@@ -13,7 +13,7 @@
 // Program Arguments Configuration
 // ============================================================================
 
-#define ARGS_LIST path, prompt, input_json, max_batch_size, async_mode, temperature, topp, steps, without_paged_attn, save_results
+#define ARGS_LIST path, prompt, input_json, max_batch_size, max_tokens_per_batch, async_mode, temperature, topp, steps, without_paged_attn, save_results
 
 class Arguments : public ArgConfig<Arguments>
 {
@@ -22,6 +22,7 @@ public:
     Arg<std::string> prompt{{"-i", "--prompt"}, "Input prompt", ""};
     Arg<std::string> input_json{"--input-json", "Path to JSON file with benchmark requests", ""};
     Arg<int>         max_batch_size{{"-b", "--max-batch-size"}, "Maximum batch size for continuous batching", 1};
+    Arg<int>         max_tokens_per_batch{"--max-tokens-per-batch", "Max tokens per scheduler batch (controls chunked prefill size)", 512};
     Arg<bool>        async_mode{"--async", "Enable async request submission (simulate dynamic arrivals)", false};
     Arg<float>       temperature{{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
     Arg<float>       topp{{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
@@ -129,7 +130,8 @@ int main(int argc, char **argv)
     BenchmarkResult result;
     try {
         if (has_input_json) {
-            result = run_json_benchmark(model, tokenizer, args.input_json, args.max_batch_size, args.async_mode);
+            result = run_json_benchmark(model, tokenizer, args.input_json, args.max_batch_size, args.async_mode,
+                                       args.max_tokens_per_batch);
         }
         else {
             result = run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);
