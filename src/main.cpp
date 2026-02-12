@@ -5,6 +5,7 @@
 #include "core/tokenizer.hpp"
 #include "utils/argparser.hpp"
 #include "utils/benchmark_result.hpp"
+#include "utils/comparison.hpp"
 #include "utils/logger.hpp"
 #include "utils/path.hpp"
 
@@ -39,6 +40,37 @@ public:
 
 int main(int argc, char **argv)
 {
+    // ---- Comparison mode (no model needed) ----
+    // Pre-scan argv since comparison mode doesn't use the positional path arg
+    std::string compare_a, compare_b, output_format = "table";
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--compare-a" && i + 1 < argc)      { compare_a = argv[++i]; }
+        else if (arg == "--compare-b" && i + 1 < argc)  { compare_b = argv[++i]; }
+        else if (arg == "--output-format" && i + 1 < argc) { output_format = argv[++i]; }
+    }
+
+    if (!compare_a.empty() && !compare_b.empty()) {
+        try {
+            BenchmarkResult a = BenchmarkResult::load(compare_a);
+            BenchmarkResult b = BenchmarkResult::load(compare_b);
+            Comparison cmp(a, b);
+
+            if (output_format == "json") {
+                std::cout << cmp.to_json();
+            }
+            else {
+                cmp.print_table();
+            }
+            return 0;
+        }
+        catch (const std::exception &e) {
+            LOG_ERROR("Comparison failed: ", e.what());
+            return 1;
+        }
+    }
+
+    // ---- Inference mode ----
     Arguments args;
     ArgParser parser("nano-vllm: A minimal vLLM implementation in C++");
 
