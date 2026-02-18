@@ -14,10 +14,10 @@
 struct RunConfig
 {
     // Execution mode
-    std::string mode = "single"; // "single", "sequential", "batched", "async"
-    bool        paged_attention       = false;
-    int         max_batch_size        = 1;
-    int         max_tokens_per_batch  = 512;
+    std::string mode                 = "single"; // "single", "sequential", "batched", "async"
+    bool        paged_attention      = false;
+    int         max_batch_size       = 1;
+    int         max_tokens_per_batch = 512;
 
     // Model config fields
     int dim         = 0;
@@ -194,35 +194,35 @@ inline BenchmarkResult BenchmarkResult::load(const std::string &path)
     BenchmarkResult result;
 
     // Parse run_config
-    const auto &cfg              = root.get_object("run_config");
-    result.config.mode                  = cfg.get_string("mode", "single");
-    result.config.paged_attention       = cfg.get_bool("paged_attention", false);
-    result.config.max_batch_size        = cfg.get_int("max_batch_size", 1);
-    result.config.max_tokens_per_batch  = cfg.get_int("max_tokens_per_batch", 512);
-    result.config.dim                   = cfg.get_int("dim", 0);
-    result.config.n_layers              = cfg.get_int("n_layers", 0);
-    result.config.n_heads               = cfg.get_int("n_heads", 0);
-    result.config.n_kv_heads            = cfg.get_int("n_kv_heads", 0);
-    result.config.head_dim              = cfg.get_int("head_dim", 0);
-    result.config.vocab_size            = cfg.get_int("vocab_size", 0);
-    result.config.max_seq_len           = cfg.get_int("max_seq_len", 0);
-    result.config.block_size            = cfg.get_int("block_size", 16);
-    result.config.num_blocks            = cfg.get_int("num_blocks", 256);
+    const auto &cfg                    = root.get_object("run_config");
+    result.config.mode                 = cfg.get_string("mode", "single");
+    result.config.paged_attention      = cfg.get_bool("paged_attention", false);
+    result.config.max_batch_size       = cfg.get_int("max_batch_size", 1);
+    result.config.max_tokens_per_batch = cfg.get_int("max_tokens_per_batch", 512);
+    result.config.dim                  = cfg.get_int("dim", 0);
+    result.config.n_layers             = cfg.get_int("n_layers", 0);
+    result.config.n_heads              = cfg.get_int("n_heads", 0);
+    result.config.n_kv_heads           = cfg.get_int("n_kv_heads", 0);
+    result.config.head_dim             = cfg.get_int("head_dim", 0);
+    result.config.vocab_size           = cfg.get_int("vocab_size", 0);
+    result.config.max_seq_len          = cfg.get_int("max_seq_len", 0);
+    result.config.block_size           = cfg.get_int("block_size", 16);
+    result.config.num_blocks           = cfg.get_int("num_blocks", 256);
 
     // Parse memory
-    const auto &mem             = root.get_object("memory");
+    const auto &mem              = root.get_object("memory");
     result.memory.kv_cache_bytes = static_cast<size_t>(mem.get_number("kv_cache_bytes", 0.0));
     result.memory.blocks_used    = mem.get_int("blocks_used", 0);
     result.memory.blocks_total   = mem.get_int("blocks_total", 0);
 
     // Parse metrics
-    const auto &metrics                = root.get_object("metrics");
-    result.total_requests              = metrics.get_int("total_requests", 0);
-    result.total_prompt_tokens         = metrics.get_int("total_prompt_tokens", 0);
-    result.total_generated_tokens      = metrics.get_int("total_generated_tokens", 0);
-    result.total_prefill_time_ms       = metrics.get_number("total_prefill_time_ms", 0.0);
-    result.total_decode_time_ms        = metrics.get_number("total_decode_time_ms", 0.0);
-    result.total_time_ms               = metrics.get_number("total_time_ms", 0.0);
+    const auto &metrics           = root.get_object("metrics");
+    result.total_requests         = metrics.get_int("total_requests", 0);
+    result.total_prompt_tokens    = metrics.get_int("total_prompt_tokens", 0);
+    result.total_generated_tokens = metrics.get_int("total_generated_tokens", 0);
+    result.total_prefill_time_ms  = metrics.get_number("total_prefill_time_ms", 0.0);
+    result.total_decode_time_ms   = metrics.get_number("total_decode_time_ms", 0.0);
+    result.total_time_ms          = metrics.get_number("total_time_ms", 0.0);
 
     // Parse per_request
     const auto &requests = root.get_array("per_request");
@@ -247,11 +247,11 @@ inline BenchmarkResult BenchmarkResult::load(const std::string &path)
 #include "scheduler/benchmark.hpp"
 #include "utils/metrics.hpp"
 
-inline BenchmarkResult build_result(const BenchmarkMetrics &metrics,
-                                    const Config &model_config,
-                                    const std::string &mode,
-                                    int max_batch_size,
-                                    int max_tokens_per_batch,
+inline BenchmarkResult build_result(const BenchmarkMetrics     &metrics,
+                                    const Config               &model_config,
+                                    const std::string          &mode,
+                                    int                         max_batch_size,
+                                    int                         max_tokens_per_batch,
                                     const std::vector<Request> &requests)
 {
     BenchmarkResult result;
@@ -305,7 +305,7 @@ inline BenchmarkResult build_result(const BenchmarkMetrics &metrics,
                 total_blocks_used += (seq_len + model_config.block_size - 1) / model_config.block_size;
             }
         }
-        int paged_tokens = total_blocks_used * model_config.block_size;
+        int paged_tokens             = total_blocks_used * model_config.block_size;
         result.memory.kv_cache_bytes = KVCacheMetrics::calculate_kv_cache_bytes(
             model_config.n_layers, paged_tokens, model_config.n_kv_heads, model_config.head_dim);
         result.memory.blocks_used  = total_blocks_used;
