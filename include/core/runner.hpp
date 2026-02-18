@@ -99,8 +99,8 @@ inline BenchmarkResult run_single_prompt(LlamaModel        &model,
     result.total_time_ms          = total_ms;
 
     if (model.config.use_paged_attention) {
-        int blocks_used  = model.block_tables.empty() ? 0 : static_cast<int>(model.block_tables[0].size());
-        int paged_tokens = blocks_used * model.config.block_size;
+        int blocks_used              = model.block_tables.empty() ? 0 : static_cast<int>(model.block_tables[0].size());
+        int paged_tokens             = blocks_used * model.config.block_size;
         result.memory.kv_cache_bytes = KVCacheMetrics::calculate_kv_cache_bytes(
             model.config.n_layers, paged_tokens, model.config.n_kv_heads, model.config.head_dim);
         result.memory.blocks_used  = blocks_used;
@@ -156,11 +156,11 @@ inline BenchmarkResult run_json_sequential(LlamaModel &model, Tokenizer &tokeniz
 // JSON Benchmark Mode - Batched (Continuous Batching)
 // ============================================================================
 
-inline BenchmarkResult run_json_batched(LlamaModel            &model,
-                                        Tokenizer             &tokenizer,
-                                        std::vector<Request>  &requests,
-                                        int                    max_batch_size,
-                                        int                    max_tokens_per_batch = 512)
+inline BenchmarkResult run_json_batched(LlamaModel           &model,
+                                        Tokenizer            &tokenizer,
+                                        std::vector<Request> &requests,
+                                        int                   max_batch_size,
+                                        int                   max_tokens_per_batch = 512)
 {
     if (!model.config.use_paged_attention && max_batch_size > 1) {
         LOG_WARNING("Non-paged attention uses a shared KV cache; interleaved batching is unsafe. "
@@ -187,11 +187,11 @@ inline BenchmarkResult run_json_batched(LlamaModel            &model,
 // JSON Benchmark Mode - Async (Dynamic Request Arrivals)
 // ============================================================================
 
-inline BenchmarkResult run_json_async(LlamaModel            &model,
-                                      Tokenizer             &tokenizer,
-                                      std::vector<Request>  &requests,
-                                      int                    max_batch_size,
-                                      int                    max_tokens_per_batch = 512)
+inline BenchmarkResult run_json_async(LlamaModel           &model,
+                                      Tokenizer            &tokenizer,
+                                      std::vector<Request> &requests,
+                                      int                   max_batch_size,
+                                      int                   max_tokens_per_batch = 512)
 {
     if (!model.config.use_paged_attention) {
         LOG_WARNING("Async interleaved batching requires paged attention for KV isolation. "
