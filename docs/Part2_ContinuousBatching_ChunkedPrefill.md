@@ -285,39 +285,95 @@ Iteration 8:  [████] chunk 8 + [●●●] decode tokens
 2. **Bounded Latency**: Decode requests never wait more than chunk_size tokens
 3. **Better Utilization**: Mix long prompts with decode tokens
 
-### 6.3. Conceptual Implementation
+### 6.3. Implementation
 
-> **Note**: Chunked prefill is not yet implemented in the current codebase. The scheduler (`include/scheduler/scheduler.hpp`) processes each prefill request's entire prompt in one batch. The following shows how the scheduler would be extended to support chunking.
+Chunked prefill is implemented across three key components:
+
+#### Request State Tracking (`include/scheduler/request.hpp`)
 
 ```cpp
-// Conceptual extension to Scheduler::schedule()
-while (!pending_queue_.empty() && remaining_slots > 0) {
-    Request* req = pending_queue_.front();
+struct Request {
+    int prefill_cursor = 0;  // Progress tracker for chunked prefill
 
-    // Calculate how many tokens remain for this request's prefill
-    int remaining_prompt = req->num_prompt_tokens() - req->prefill_progress;
-    int chunk_tokens = std::min(remaining_prompt, chunk_size);
+    // Helper methods for chunked prefill
+    bool is_prefill() const { return prefill_cursor < num_prompt_tokens(); }
+    int  remaining_prompt() const { return num_prompt_tokens() - prefill_cursor; }
+};
+```
 
-    // Check token budget
-    if (current_tokens + chunk_tokens > max_tokens_per_batch) break;
+#### Scheduler Logic (`include/scheduler/scheduler.hpp`)
 
-    if (req->prefill_progress == 0) {
-        // First chunk: move from pending to running
-        pending_queue_.pop();
-        running_requests_.push_back(req);
-    }
+The scheduler calculates chunk sizes based on the token budget:
 
-    batch.prefill_requests.push_back({req, req->prefill_progress, chunk_tokens});
-    req->prefill_progress += chunk_tokens;
+```cpp
+// Continue prefill for requests already in running set (chunked prefill)
+for (auto *req : running_requests_) {
+    if (req->status != RequestStatus::PREFILLING) continue;
 
-    // If all prompt tokens scheduled, transition to DECODING next iteration
-    if (req->prefill_progress >= req->num_prompt_tokens()) {
-        req->status = RequestStatus::DECODING;
-    }
+    int remaining   = req->remaining_prompt();
+    int budget_left = config_.max_tokens_per_batch - batch.total_scheduled_tokens;
+    int chunk_size  = std::min(remaining, budget_left);
 
-    current_tokens += chunk_tokens;
-    remaining_slots--;
+    if (chunk_size <= 0) break;
+    batch.add(req, chunk_size);
 }
+
+// Admit new prefill requests from pending queue
+while (!pending_queue_.empty()) {
+    Request *req         = pending_queue_.front();
+    int      remaining   = req->remaining_prompt();
+    int      budget_left = config_.max_tokens_per_batch - batch.total_scheduled_tokens;
+    int      chunk_size  = std::min(remaining, budget_left);
+
+    if (chunk_size <= 0) break;
+
+    pending_queue_.pop();
+    req->status = RequestStatus::PREFILLING;
+    running_requests_.push_back(req);
+    batch.add(req, chunk_size);
+}
+```
+
+#### Prefill Execution (`include/scheduler/batched_runner.hpp`)
+
+```cpp
+void run_prefill_batch(ScheduledBatch &batch, Scheduler &scheduler) {
+    for (size_t i = 0; i < batch.requests.size(); i++) {
+        Request *req          = batch.requests[i];
+        int      tokens_to_do = batch.scheduled_tokens[i];  // Chunk size from scheduler
+
+        // Process only the scheduled chunk of prompt tokens
+        for (int t = 0; t < tokens_to_do; t++) {
+            int token_idx = req->prefill_cursor + t;
+            model_.forward_with_request(req->prompt_tokens[token_idx], req->current_pos, req);
+            req->current_pos++;
+        }
+        req->prefill_cursor += tokens_to_do;  // Update progress
+
+        // Transition to DECODING when entire prompt is processed
+        if (!req->is_prefill()) {
+            req->status = RequestStatus::DECODING;
+        }
+    }
+}
+```
+
+#### Testing Chunked Prefill
+
+Use the `--max-tokens-per-batch` (or `-bt`) CLI option to control the token budget:
+
+```bash
+# With default model (max_seq_len=256), use -bt 64 to trigger chunking
+./build/main models/model.bin --input-json examples/chunked_prefill_test.json -b 4 -bt 64
+```
+
+Example output showing a 72-token prompt split into chunks of 64 + 8:
+
+```
+Running in batched mode with max_batch_size=4, max_tokens_per_batch=64
+Iteration 0: 1 requests (prefill), 64 tokens   # First chunk
+Iteration 1: 3 requests (prefill), 28 tokens   # Remaining 8 + other requests
+Request 0 prefill complete: 72 tokens
 ```
 
 ### 6.4. Chunk Size Trade-off
