@@ -24,7 +24,7 @@ public:
     Arg<std::string> prompt{{"-i", "--prompt"}, "Input prompt", ""};
     Arg<std::string> input_json{"--input-json", "Path to JSON file with benchmark requests", ""};
     Arg<int>         max_batch_size{{"-b", "--max-batch-size"}, "Maximum batch size for continuous batching", 1};
-    Arg<int>         max_tokens_per_batch{"--max-tokens-per-batch",
+    Arg<int>         max_tokens_per_batch{{"-bt", "--max-tokens-per-batch"},
                                   "Max tokens per scheduler batch (controls chunked prefill size)",
                                   512};
     Arg<bool>        async_mode{"--async", "Enable async request submission (simulate dynamic arrivals)", false};
