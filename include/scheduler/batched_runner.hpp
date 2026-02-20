@@ -181,6 +181,16 @@ private:
 
             auto prefill_start = std::chrono::high_resolution_clock::now();
 
+            LOG_INFO("  Request ",
+                     req->id,
+                     ": prefill chunk [",
+                     req->prefill_cursor,
+                     "..",
+                     req->prefill_cursor + tokens_to_do,
+                     ") of ",
+                     req->num_prompt_tokens(),
+                     " prompt tokens");
+
             // Process chunk of prompt tokens (not full prompt at once)
             for (int t = 0; t < tokens_to_do; t++) {
                 int token_idx = req->prefill_cursor + t;

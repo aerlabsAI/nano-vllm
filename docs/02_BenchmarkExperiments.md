@@ -5,10 +5,27 @@ on CPU using the stories15M model (dim=288, 6 layers, 6 heads, vocab=32000).
 
 ## Experiment Setup
 
-- **Model**: stories15M (60MB, Llama2 architecture)
+- **Model**: stories15M (60MB, Llama2 architecture, max_seq_len=256)
 - **Platform**: macOS arm64 (Apple Silicon)
-- **Workload**: 4 requests with short prompts (3-14 tokens each), generating 20-50 tokens
+- **Workload**: 6 requests with mixed prompt lengths (6-79 tokens each), generating 20-50 tokens
 - **Workload file**: `examples/comparison_workload.json`
+
+### Workload Design
+
+The workload mixes long and short prompts to demonstrate chunked prefill behavior:
+
+| Request | Prompt | Tokens | Max Gen |
+|---------|--------|--------|---------|
+| 0 | "Once upon a time in a magical forest..." (long story) | ~72 | 30 |
+| 1 | "Tell me a story." | ~6 | 50 |
+| 2 | "In a small village at the edge..." (long story) | ~79 | 30 |
+| 3 | "What is the meaning of life?" | ~8 | 40 |
+| 4 | "The sun was setting over the vast ocean..." (long story) | ~74 | 20 |
+| 5 | "Write a poem about the stars." | ~8 | 40 |
+
+With `--max-tokens-per-batch 64`, the three long prompts (72, 79, 74 tokens)
+exceed the token budget and trigger chunked prefill, while short prompts fit
+entirely in a single chunk.
 
 ### Configurations
 
@@ -16,8 +33,8 @@ on CPU using the stories15M model (dim=288, 6 layers, 6 heads, vocab=32000).
 |---|------|-----------------|------------|-----------------|
 | 1 | Sequential | OFF | 1 | N/A |
 | 2 | Sequential | ON | 1 | N/A |
-| 3 | Batched | ON | 4 | OFF (`--max-tokens-per-batch 65536`) |
-| 4 | Batched | ON | 4 | ON (`--max-tokens-per-batch 8`) |
+| 3 | Batched | ON | 4 | OFF (`-bt 65536`) |
+| 4 | Batched | ON | 4 | ON (`-bt 64`) |
 
 ### Commands
 
@@ -32,21 +49,21 @@ on CPU using the stories15M model (dim=288, 6 layers, 6 heads, vocab=32000).
 
 # 3. Batched + Paged Attention + No Chunking
 ./build/main models --input-json examples/comparison_workload.json \
-    -b 4 --max-tokens-per-batch 65536 --save-results results/3_batch_paged_nochunk.json
+    -b 4 -bt 65536 --save-results results/3_batch_paged_nochunk.json
 
-# 4. Batched + Paged Attention + Chunked Prefill (8 tokens)
+# 4. Batched + Paged Attention + Chunked Prefill (64 tokens)
 ./build/main models --input-json examples/comparison_workload.json \
-    -b 4 --max-tokens-per-batch 8 --save-results results/4_batch_paged_chunk8.json
+    -b 4 -bt 64 --save-results results/4_batch_paged_chunk64.json
 ```
 
 ## Results
 
 | # | Configuration | Total Time | Prefill tok/s | Decode tok/s | Overall tok/s | KV Memory |
 |---|---------------|------------|---------------|--------------|---------------|-----------|
-| 1 | Sequential + StdAttn | 437.30 ms | 873.77 | 352.95 | 400.18 | 3.38 MB |
-| 2 | Sequential + PagedAttn | 433.93 ms | 898.42 | 355.00 | 403.29 | 2.74 MB |
-| 3 | Batched(4) + PagedAttn + No Chunk | 453.68 ms | 776.61 | 343.82 | 385.73 | 2.74 MB |
-| 4 | Batched(4) + PagedAttn + Chunk(8) | 483.87 ms | 737.57 | 349.42 | 361.67 | 2.74 MB |
+| 1 | Sequential + StdAttn | 593.90 ms | 1286.45 | 534.22 | 769.50 | 3.38 MB |
+| 2 | Sequential + PagedAttn | 594.68 ms | 1277.75 | 534.93 | 768.48 | 6.33 MB |
+| 3 | Batched(4) + PagedAttn + No Chunk | 607.87 ms | 1232.90 | 516.74 | 751.81 | 6.33 MB |
+| 4 | Batched(4) + PagedAttn + Chunk(64) | 604.96 ms | 1209.46 | 525.93 | 755.42 | 6.33 MB |
 
 ### Comparison Tables
 
@@ -56,15 +73,15 @@ on CPU using the stories15M model (dim=288, 6 layers, 6 heads, vocab=32000).
 +--------------------------+--------------------+--------------------+----------+
 | Metric                   | sequential + StdAt | sequential + Paged | Diff     |
 +--------------------------+--------------------+--------------------+----------+
-| Total Time               | 437.30 ms          | 433.93 ms          | -0.8%    |
-| Prefill Time             | 40.06 ms           | 38.96 ms           | -2.7%    |
-| Decode Time              | 396.66 ms          | 394.36 ms          | -0.6%    |
+| Total Time               | 593.90 ms          | 594.68 ms          | +0.1%    |
+| Prefill Time             | 192.00 ms          | 193.31 ms          | +0.7%    |
+| Decode Time              | 393.09 ms          | 392.58 ms          | -0.1%    |
 +--------------------------+--------------------+--------------------+----------+
-| Prefill Throughput       | 873.69 tok/s       | 898.36 tok/s       | +2.8%    |
-| Decode Throughput        | 352.95 tok/s       | 355.01 tok/s       | +0.6%    |
-| Overall Throughput       | 400.18 tok/s       | 403.29 tok/s       | +0.8%    |
+| Prefill Throughput       | 1286.46 tok/s      | 1277.74 tok/s      | -0.7%    |
+| Decode Throughput        | 534.23 tok/s       | 534.92 tok/s       | +0.1%    |
+| Overall Throughput       | 769.49 tok/s       | 768.48 tok/s       | -0.1%    |
 +--------------------------+--------------------+--------------------+----------+
-| KV Cache Memory          | 3.38 MB            | 2.74 MB            | -18.8%   |
+| KV Cache Memory          | 3.38 MB            | 6.33 MB            | +87.5%   |
 +--------------------------+--------------------+--------------------+----------+
 ```
 
@@ -74,15 +91,15 @@ on CPU using the stories15M model (dim=288, 6 layers, 6 heads, vocab=32000).
 +--------------------------+--------------------+--------------------+----------+
 | Metric                   | sequential + Paged | batched + PagedAtt | Diff     |
 +--------------------------+--------------------+--------------------+----------+
-| Total Time               | 433.93 ms          | 453.68 ms          | +4.6%    |
-| Prefill Time             | 38.96 ms           | 45.07 ms           | +15.7%   |
-| Decode Time              | 394.36 ms          | 407.19 ms          | +3.3%    |
+| Total Time               | 594.68 ms          | 607.87 ms          | +2.2%    |
+| Prefill Time             | 193.31 ms          | 200.34 ms          | +3.6%    |
+| Decode Time              | 392.58 ms          | 406.39 ms          | +3.5%    |
 +--------------------------+--------------------+--------------------+----------+
-| Prefill Throughput       | 898.36 tok/s       | 776.57 tok/s       | -13.6%   |
-| Decode Throughput        | 355.01 tok/s       | 343.82 tok/s       | -3.2%    |
-| Overall Throughput       | 403.29 tok/s       | 385.73 tok/s       | -4.4%    |
+| Prefill Throughput       | 1277.74 tok/s      | 1232.90 tok/s      | -3.5%    |
+| Decode Throughput        | 534.92 tok/s       | 516.74 tok/s       | -3.4%    |
+| Overall Throughput       | 768.48 tok/s       | 751.81 tok/s       | -2.2%    |
 +--------------------------+--------------------+--------------------+----------+
-| KV Cache Memory          | 2.74 MB            | 2.74 MB            | 0.0%     |
+| KV Cache Memory          | 6.33 MB            | 6.33 MB            | 0.0%     |
 +--------------------------+--------------------+--------------------+----------+
 ```
 
@@ -90,56 +107,103 @@ on CPU using the stories15M model (dim=288, 6 layers, 6 heads, vocab=32000).
 
 ```
 +--------------------------+--------------------+--------------------+----------+
-| Metric                   | No Chunk (65536)   | Chunk (8)          | Diff     |
+| Metric                   | batched + PagedAtt | batched + PagedAtt | Diff     |
 +--------------------------+--------------------+--------------------+----------+
-| Total Time               | 453.68 ms          | 483.87 ms          | +6.7%    |
-| Prefill Time             | 45.07 ms           | 47.45 ms           | +5.3%    |
-| Decode Time              | 407.19 ms          | 400.66 ms          | -1.6%    |
+| Total Time               | 607.87 ms          | 604.96 ms          | -0.5%    |
+| Prefill Time             | 200.34 ms          | 204.22 ms          | +1.9%    |
+| Decode Time              | 406.39 ms          | 399.29 ms          | -1.7%    |
 +--------------------------+--------------------+--------------------+----------+
-| Prefill Throughput       | 776.57 tok/s       | 737.62 tok/s       | -5.0%    |
-| Decode Throughput        | 343.82 tok/s       | 349.42 tok/s       | +1.6%    |
-| Overall Throughput       | 385.73 tok/s       | 361.67 tok/s       | -6.2%    |
+| Prefill Throughput       | 1232.90 tok/s      | 1209.48 tok/s      | -1.9%    |
+| Decode Throughput        | 516.74 tok/s       | 525.93 tok/s       | +1.8%    |
+| Overall Throughput       | 751.81 tok/s       | 755.42 tok/s       | +0.5%    |
 +--------------------------+--------------------+--------------------+----------+
-| KV Cache Memory          | 2.74 MB            | 2.74 MB            | 0.0%     |
+| KV Cache Memory          | 6.33 MB            | 6.33 MB            | 0.0%     |
 +--------------------------+--------------------+--------------------+----------+
 ```
+
+### Scheduling Trace: Chunked Prefill in Action (Run 4, `-bt 64`)
+
+The following trace shows how the scheduler chunks long prompts and interleaves
+prefill with decode:
+
+```
+Iter 0:  PREFILL  1 req,  64 tok  | Req0: chunk [0..64) of 72 tokens
+Iter 1:  PREFILL  3 req,  64 tok  | Req0: chunk [64..72) DONE
+                                   | Req1: full prefill [0..6) DONE
+                                   | Req2: chunk [0..50) of 79 tokens
+Iter 2-31:  DECODE  2 req, 2 tok  | Req0 + Req1 decoding together
+Iter 31: Req0 finished (30 tokens generated)
+Iter 32-51: DECODE  1 req, 1 tok  | Req1 decoding alone
+Iter 51: Req1 finished (50 tokens generated)
+
+Iter 52: PREFILL  3 req, 64 tok   | Req2: chunk [50..79) DONE
+                                   | Req3: full prefill [0..8) DONE
+                                   | Req4: chunk [0..27) of 74 tokens
+Iter 53-82: DECODE  2 req, 2 tok  | Req2 + Req3 decoding together
+Iter 82: Req2 finished (30 tokens generated)
+Iter 83-92: DECODE  1 req, 1 tok  | Req3 decoding alone
+Iter 92: Req3 finished (40 tokens generated)
+
+Iter 93: PREFILL  2 req, 55 tok   | Req4: chunk [27..74) DONE
+                                   | Req5: full prefill [0..8) DONE
+Iter 94-113: DECODE  2 req, 2 tok | Req4 + Req5 decoding together
+Iter 113: Req4 finished (20 tokens generated)
+Iter 114-133: DECODE  1 req, 1 tok| Req5 decoding alone
+Iter 133: Req5 finished (40 tokens generated)
+```
+
+Key observations from the trace:
+- **Chunking**: Req0 (72 tok), Req2 (79 tok), and Req4 (74 tok) all exceed
+  the 64-token budget and are split across multiple prefill iterations.
+- **Budget packing**: After a chunk completes, remaining budget is used for
+  the next request (e.g., Iter 1: 8 + 6 + 50 = 64 tokens).
+- **Decode-first policy**: Once requests enter decode, they are prioritized
+  over pending prefills. New prefills only happen when decode slots are free.
+- **Continuous batching**: Multiple requests decode simultaneously
+  (e.g., Req0 + Req1 in Iter 2-31), and finished requests free slots
+  for new prefills.
 
 ## Analysis
 
 ### 1. Standard vs Paged Attention
 
-- **Throughput**: Nearly identical (~0.8% faster with paged attention).
+- **Throughput**: Nearly identical (~0.1% difference, within noise).
   The block indirection overhead is negligible for this small model.
-- **Memory**: Paged attention uses **18.8% less KV cache** (2.74 MB vs 3.38 MB).
-  Standard attention pre-allocates the full `max_seq_len` (1024 tokens),
-  while paged attention only allocates blocks actually used
-  (13 blocks = 208 tokens worth).
-- **Takeaway**: Paged attention is a clear win on CPU -- same speed, less memory.
+- **Memory**: Paged attention reports **higher** KV cache in this measurement
+  because sequential mode re-initializes the block manager per request,
+  and the metric sums estimated blocks across all requests.
+  In practice, paged attention only allocates blocks actually used,
+  while standard attention pre-allocates the full `max_seq_len`.
+- **Takeaway**: Paged attention has negligible overhead on CPU. The real
+  memory savings are visible at scale with many concurrent sequences.
 
 ### 2. Sequential vs Continuous Batching
 
-- **Throughput**: Batched mode is **4.4% slower** overall.
-  Prefill is 13.6% slower due to scheduler overhead
-  (batch formation, block allocation for 4 concurrent requests).
+- **Throughput**: Batched mode is **2.2% slower** overall.
+  Both prefill (-3.5%) and decode (-3.4%) are slower due to scheduler
+  overhead (batch formation, block allocation for concurrent requests).
 - **Why slower on CPU?** Requests execute serially within a batch --
   there is no parallel matrix multiplication. The scheduler adds
-  overhead without a throughput benefit.
+  overhead without a compute throughput benefit.
 - **Takeaway**: On CPU, continuous batching adds overhead without throughput gain.
   Its value is **scheduling fairness** (shorter requests finish earlier
   when interleaved with long ones), not raw speed.
 
 ### 3. Chunked Prefill ON vs OFF
 
-- **Throughput**: Chunked prefill is **6.2% slower** overall.
-  More scheduler iterations (125 vs 51) means more overhead per token.
-- **Scheduling behavior**: With `chunk=8`, requests are admitted in waves --
-  Request 0 was fully decoded before Requests 1-3 even started prefill.
-  Without chunking, all 4 prefill together then all decode together.
-- **Decode throughput**: Slightly better with chunking (+1.6%)
-  because shorter requests finish and free up memory/blocks sooner.
-- **Takeaway**: Chunked prefill trades total throughput for **latency fairness**.
-  On CPU, the overhead is measurable but the benefit (preventing head-of-line blocking
-  for short requests) only matters with mixed-length workloads.
+- **Overall throughput**: Nearly identical (+0.5%), within noise.
+  With longer prompts that actually trigger chunking, the overhead
+  of extra scheduler iterations is offset by better decode interleaving.
+- **Prefill throughput**: Slightly slower (-1.9%) due to chunk boundary overhead.
+- **Decode throughput**: Slightly faster (+1.8%) because chunking allows
+  decode to start sooner -- requests that finish prefill early can begin
+  generating while others are still prefilling.
+- **Scheduling behavior**: With `chunk=64`, the 3 long prompts (72, 79, 74 tokens)
+  are each split into 2 prefill iterations. Short prompts (6-8 tokens) fit
+  in remaining budget alongside long-prompt chunks.
+- **Takeaway**: Chunked prefill trades prefill throughput for **decode latency
+  fairness**. On CPU, the trade-off is roughly even. On GPU, chunked prefill
+  prevents long prompts from monopolizing compute while decode requests starve.
 
 ## CPU vs GPU: Why Results Differ
 
@@ -158,9 +222,9 @@ so the overhead of scheduling is pure cost.
 
 | Feature | CPU Impact | GPU Impact |
 |---------|-----------|------------|
-| Paged Attention | Same speed, **-18.8% memory** | Same speed, significant memory savings at scale |
-| Continuous Batching | **-4.4% throughput** (overhead) | Major throughput gain (parallel GEMM) |
-| Chunked Prefill | **-6.2% throughput** (overhead) | Better latency fairness + GPU utilization |
+| Paged Attention | Same speed, memory savings at scale | Same speed, significant memory savings at scale |
+| Continuous Batching | **-2.2% throughput** (overhead) | Major throughput gain (parallel GEMM) |
+| Chunked Prefill | **~even throughput**, better decode latency | Better latency fairness + GPU utilization |
 
 The primary value of this CPU implementation is **educational** --
 it demonstrates the algorithms and scheduling policies of vLLM

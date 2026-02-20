@@ -1,28 +1,41 @@
 {
+  "description": "Workload for analyzing continuous batching and chunked prefill. Run with -b 4 -bt 64 to trigger chunking on long prompts (~70-80 tokens). Compare: (1) -b 1 (sequential) vs -b 4 (batched) for batching effect, (2) -bt 512 (no chunking) vs -bt 64 (chunked) for chunked prefill effect.",
   "requests": [
     {
-      "prompt": "What is machine learning?",
+      "prompt": "Once upon a time in a magical forest, there lived a little rabbit named Lily. She had soft white fur and bright blue eyes. Every morning, Lily would hop through the meadow to visit her best friend, a wise old owl named Oliver. Oliver lived in a tall oak tree and knew many stories about the forest.",
       "temperature": 0.8,
       "top_p": 0.9,
       "max_tokens": 30
     },
     {
-      "prompt": "Explain the concept of neural networks in simple terms.",
+      "prompt": "Tell me a story.",
       "temperature": 0.8,
       "top_p": 0.9,
+      "max_tokens": 50
+    },
+    {
+      "prompt": "In a small village at the edge of a great mountain range, there was an old blacksmith who forged swords for the kingdom. He had spent forty years perfecting his craft, heating metal until it glowed bright orange, then hammering it into shape on his ancient anvil. His daughter watched him work every day, hoping to learn his secrets.",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 30
+    },
+    {
+      "prompt": "What is the meaning of life?",
+      "temperature": 0.9,
+      "top_p": 0.95,
       "max_tokens": 40
     },
     {
-      "prompt": "Hello!",
-      "temperature": 0.7,
+      "prompt": "The sun was setting over the vast ocean, painting the sky in shades of orange and purple. A lone fisherman sat in his wooden boat, casting his net one final time before heading home. The waves gently rocked the boat as seagulls circled overhead, calling out to each other in the fading light of the day.",
+      "temperature": 0.8,
       "top_p": 0.9,
       "max_tokens": 20
     },
     {
-      "prompt": "Write a short poem about the ocean and the stars above it.",
+      "prompt": "Write a poem about the stars.",
       "temperature": 0.9,
       "top_p": 0.95,
-      "max_tokens": 50
+      "max_tokens": 40
     }
   ]
 }
