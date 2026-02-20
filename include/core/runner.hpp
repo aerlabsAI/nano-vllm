@@ -175,7 +175,10 @@ inline BenchmarkResult run_json_batched(LlamaModel           &model,
     Scheduler     scheduler(config);
     BatchedRunner runner(model, tokenizer);
 
-    LOG_INFO("Running in batched mode with max_batch_size=", max_batch_size);
+    LOG_INFO("Running in batched mode with max_batch_size=",
+             max_batch_size,
+             ", max_tokens_per_batch=",
+             max_tokens_per_batch);
 
     BenchmarkMetrics metrics = runner.run_all(requests, scheduler);
 
@@ -207,7 +210,8 @@ inline BenchmarkResult run_json_async(LlamaModel           &model,
     BatchedRunner     runner(model, tokenizer);
     AsyncRequestQueue async_queue;
 
-    LOG_INFO("Running in async mode with max_batch_size=", max_batch_size);
+    LOG_INFO(
+        "Running in async mode with max_batch_size=", max_batch_size, ", max_tokens_per_batch=", max_tokens_per_batch);
 
     // Start producer thread that submits requests with arrival delays
     RequestSubmitter submitter(requests, async_queue);
