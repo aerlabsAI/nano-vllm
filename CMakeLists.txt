@@ -25,6 +25,18 @@ if(APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -isysroot ${MACOS_SDK_PATH}")
     message(STATUS "Using macOS SDK: ${MACOS_SDK_PATH}")
   endif()
+
+  # Link against Homebrew LLVM's libc++ to match its headers
+  execute_process(
+    COMMAND brew --prefix llvm
+    OUTPUT_VARIABLE LLVM_PREFIX
+    OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  if(LLVM_PREFIX)
+    set(CMAKE_EXE_LINKER_FLAGS
+        "${CMAKE_EXE_LINKER_FLAGS} -L${LLVM_PREFIX}/lib/c++ -Wl,-rpath,${LLVM_PREFIX}/lib/c++"
+    )
+    message(STATUS "Using Homebrew LLVM libc++: ${LLVM_PREFIX}/lib/c++")
+  endif()
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
