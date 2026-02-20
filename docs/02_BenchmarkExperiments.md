@@ -153,6 +153,7 @@ Iter 133: Req5 finished (40 tokens generated)
 ```
 
 Key observations from the trace:
+
 - **Chunking**: Req0 (72 tok), Req2 (79 tok), and Req4 (74 tok) all exceed
   the 64-token budget and are split across multiple prefill iterations.
 - **Budget packing**: After a chunk completes, remaining budget is used for
