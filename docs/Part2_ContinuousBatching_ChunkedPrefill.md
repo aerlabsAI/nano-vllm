@@ -578,6 +578,155 @@ Despite the throughput penalty, continuous batching on CPU still provides **sche
 | Continuous Batching | -2.2% throughput (scheduling overhead) | Major throughput gain (parallel GEMM) |
 | Chunked Prefill | ~even throughput, better decode latency | Better latency fairness + GPU utilization |
 
+### 9.6. Benchmark Results (GPU)
+
+This part records what happened when we moved from the educational CPU runtime to a production-style GPU serving stack (`vLLM`) and asked a simple question:
+
+How much do **continuous batching** (`max-num-seqs`) and **chunked prefill budget** (`max-num-batched-tokens`) change real latency/throughput behavior?
+
+#### Setup and Reading Guide
+
+All runs were executed on:
+
+- RTX 3060 12GB
+- WSL2 + Docker Desktop + `vllm/vllm-openai:latest`
+- vLLM `0.15.1`
+- Base workload: `num-prompts=20`, `random-input-len=4096`, `random-output-len=512`, `random-range-ratio=0.3334`, `request-rate=1`
+
+To read the tables:
+
+- `req/s`, `out tok/s`: throughput
+- `TTFT`: prefill-sensitive latency
+- `TPOT`: decode-step latency
+- `E2EL`: end-to-end completion latency
+
+#### First Observation: Continuous Batching Capacity Matters
+
+For Qwen3-0.6B, we fixed chunk budget at `1024` and swept `max-num-seqs`.
+
+| `max-num-seqs` | req/s | out tok/s | TTFT p50 (ms) |
+| ---: | ---: | ---: | ---: |
+| 8 | 0.46 | 239.18 | 4164.58 |
+| 16 | 0.51 | 267.67 | 776.06 |
+| 24 | 0.51 | 265.72 | 755.32 |
+
+The jump from `8 -> 16` is the meaningful step: higher throughput and much lower TTFT. Going from `16 -> 24` gives little additional gain on this GPU and workload, so the useful operating point is around 16 in this setup.
+
+#### Second Observation: Chunk Budget Has a "Middle Is Better" Shape
+
+Still on Qwen3-0.6B, with `max-num-seqs=16` fixed:
+
+| `max-num-batched-tokens` | req/s | out tok/s | TTFT p50 (ms) | TPOT p50 (ms) | TPOT p99 (ms) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 0.51 | 266.47 | 920.11 | 38.05 | 42.50 |
+| 1024 | 0.52 | 271.20 | 725.53 | 37.53 | 42.02 |
+| 2048 | 0.52 | 272.54 | 661.55 | 37.74 | 43.73 |
+
+`512 -> 1024` improves both TTFT and TPOT tail slightly. `2048` continues to reduce TTFT p50, but no longer helps TPOT tail (`p99` is worse than `1024`). This is exactly the practical tuning tension we expected: larger prefill budget can improve front-of-request latency, but too much can hurt decode-step tail stability.
+
+#### Detailed 0.6B Tables (Raw Metrics)
+
+Chunked prefill budget sweep (`max-num-seqs=16` fixed):
+
+| Case | `max-num-batched-tokens` | Success/Fail | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | TPOT p50 (ms) | TPOT p99 (ms) | ITL p50 (ms) | ITL p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `chunk_512_s16_base` | 512 | 20/0 | 0.51 | 266.47 | 920.11 | 6070.61 | 38.05 | 42.50 | 30.89 | 94.81 | 19642.32 | 25527.42 |
+| `chunk_1024_s16_base` | 1024 | 20/0 | 0.52 | 271.20 | 725.53 | 5173.54 | 37.53 | 42.02 | 28.98 | 130.28 | 19051.41 | 25248.72 |
+| `chunk_2048_s16_base` | 2048 | 20/0 | 0.52 | 272.54 | 661.55 | 6148.61 | 37.74 | 43.73 | 35.22 | 198.37 | 19948.23 | 25568.93 |
+
+Batch capacity sweep (`max-num-batched-tokens=1024` fixed):
+
+| Case | `max-num-seqs` | Success/Fail | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | TPOT p50 (ms) | TPOT p99 (ms) | ITL p50 (ms) | ITL p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `batch_8_t1024_base` | 8 | 20/0 | 0.46 | 239.18 | 4164.58 | 13991.63 | 27.21 | 32.03 | 24.31 | 108.88 | 18672.92 | 24338.51 |
+| `batch_16_t1024_base` | 16 | 20/0 | 0.51 | 267.67 | 776.06 | 5715.16 | 38.57 | 43.02 | 32.82 | 136.50 | 19468.49 | 25958.98 |
+| `batch_24_t1024_base` | 24 | 20/0 | 0.51 | 265.72 | 755.32 | 1730.65 | 39.49 | 44.80 | 33.28 | 139.26 | 20181.82 | 26381.53 |
+
+#### Same Sweep on 3B: Trend Preserved, Magnitudes Amplified
+
+For Qwen2.5-3B, the direction of change is similar, but penalties are larger.
+
+Chunk budget sweep (`max-num-seqs=16`):
+
+| `max-num-batched-tokens` | req/s | out tok/s | TTFT p50 (ms) | TPOT p50 (ms) | Peak VRAM (MiB) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 512 | 0.27 | 141.56 | 8994.24 | 76.23 | 12047 |
+| 1024 | 0.30 | 154.73 | 5261.86 | 69.03 | 12062 |
+| 2048 | 0.33 | 170.49 | 3739.25 | 62.20 | 12062 |
+
+Batch capacity sweep (`max-num-batched-tokens=1024`):
+
+| `max-num-seqs` | req/s | out tok/s | TTFT p50 (ms) | Peak VRAM (MiB) |
+| ---: | ---: | ---: | ---: | ---: |
+| 8 | 0.27 | 139.60 | 16936.76 | 12015 |
+| 16 | 0.31 | 163.19 | 4930.52 | 12002 |
+| 24 | 0.36 | 187.89 | 4826.52 | 12100 |
+
+Three practical points stand out:
+
+1. `max-num-seqs=8` is again the weak point.
+2. Throughput and latency both improved as chunk budget increased in this range.
+3. VRAM stayed near ~12GB across all cases, consistent with high KV-cache reservation under this serving configuration.
+
+#### Detailed 3B Tables (Raw Metrics)
+
+Chunked prefill budget sweep (`max-num-seqs=16` fixed):
+
+| Case | `max-num-batched-tokens` | Success/Fail | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | TPOT p50 (ms) | TPOT p99 (ms) | ITL p50 (ms) | ITL p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) | Peak VRAM (MiB) |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `chunk_512_s16` | 512 | 20/0 | 0.27 | 141.56 | 8994.24 | 35713.37 | 76.23 | 99.11 | 39.21 | 272.57 | 49247.59 | 56089.59 | 12047 |
+| `chunk_1024_s16` | 1024 | 20/0 | 0.30 | 154.73 | 5261.86 | 27683.27 | 69.03 | 92.13 | 38.54 | 418.82 | 42639.81 | 49947.95 | 12062 |
+| `chunk_2048_s16` | 2048 | 20/0 | 0.33 | 170.49 | 3739.25 | 22096.96 | 62.20 | 84.97 | 37.16 | 636.65 | 36762.74 | 44195.03 | 12062 |
+
+Batch capacity sweep (`max-num-batched-tokens=1024` fixed):
+
+| Case | `max-num-seqs` | Success/Fail | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | TPOT p50 (ms) | TPOT p99 (ms) | ITL p50 (ms) | ITL p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) | Peak VRAM (MiB) |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `batch_8_t1024` | 8 | 20/0 | 0.27 | 139.60 | 16936.76 | 37648.55 | 45.43 | 55.74 | 30.35 | 347.59 | 39518.64 | 56242.82 | 12015 |
+| `batch_16_t1024` | 16 | 20/0 | 0.31 | 163.19 | 4930.52 | 25419.39 | 65.51 | 88.11 | 36.59 | 385.63 | 39915.57 | 47249.89 | 12002 |
+| `batch_24_t1024` | 24 | 20/0 | 0.36 | 187.89 | 4826.52 | 11831.11 | 69.25 | 95.90 | 42.20 | 387.61 | 39124.14 | 48174.85 | 12100 |
+
+#### Matched 0.6B vs 3B: Scale Cost in One View
+
+Using matched server/workload settings, we computed aggregate ratios:
+
+| Aggregate Metric (3B / 0.6B) | Ratio |
+| --- | ---: |
+| Average `req/s` ratio | 0.61 |
+| Average output token throughput ratio | 0.60 |
+| Average TTFT p50 ratio | 6.58 |
+| Average E2EL p50 ratio | 2.12 |
+
+Throughput for 3B is roughly 60% of 0.6B, but the latency penalty is not uniform: TTFT grows much more sharply than end-to-end median latency.
+
+#### Detailed Matched Table (0.6B vs 3B)
+
+| Case | req/s (0.6B) | req/s (3B) | req ratio (3B/0.6B) | out tok/s (0.6B) | out tok/s (3B) | out ratio (3B/0.6B) | TTFT p50 ms (0.6B) | TTFT p50 ms (3B) | TTFT ratio (3B/0.6B) | E2EL p50 ms (0.6B) | E2EL p50 ms (3B) | E2EL ratio (3B/0.6B) | Peak VRAM 3B (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `chunk_512_s16` | 0.51 | 0.27 | 0.53 | 266.47 | 141.56 | 0.53 | 920.11 | 8994.24 | 9.78 | 19642.32 | 49247.59 | 2.51 | 12047 |
+| `chunk_1024_s16` | 0.52 | 0.30 | 0.58 | 271.20 | 154.73 | 0.57 | 725.53 | 5261.86 | 7.25 | 19051.41 | 42639.81 | 2.24 | 12062 |
+| `chunk_2048_s16` | 0.52 | 0.33 | 0.63 | 272.54 | 170.49 | 0.63 | 661.55 | 3739.25 | 5.65 | 19948.23 | 36762.74 | 1.84 | 12062 |
+| `batch_8_t1024` | 0.46 | 0.27 | 0.59 | 239.18 | 139.60 | 0.58 | 4164.58 | 16936.76 | 4.07 | 18672.92 | 39518.64 | 2.12 | 12015 |
+| `batch_16_t1024` | 0.51 | 0.31 | 0.61 | 267.67 | 163.19 | 0.61 | 776.06 | 4930.52 | 6.35 | 19468.49 | 39915.57 | 2.05 | 12002 |
+| `batch_24_t1024` | 0.51 | 0.36 | 0.71 | 265.72 | 187.89 | 0.71 | 755.32 | 4826.52 | 6.39 | 20181.82 | 39124.14 | 1.94 | 12100 |
+
+#### What This Means for the Project
+
+These GPU results support the scheduling intuition from earlier sections:
+
+- Continuous batching capacity is a first-order tuning lever.
+- Chunked prefill budget has a real latency/throughput trade-off curve.
+- Larger model scale preserves the same trend but increases latency pressure.
+
+#### Why These Two Features Tend to Be Faster on GPU
+
+- Larger `max-num-seqs` increases effective GPU occupancy by grouping more decode steps into larger batched kernel work.
+- Chunked prefill reduces long-prompt head-of-line blocking, so short decode requests keep making progress instead of waiting behind a single large prefill.
+- On GPU, this scheduling effect converts directly into better throughput and often better tail latency because tensor-core compute is parallelized across the active batch.
+- On CPU, the same policies can look slower than a baseline because there is no comparable large-matrix parallel speedup to offset scheduler/chunk overhead.
+
+So even though nano-vLLM remains an educational implementation, the core scheduler concepts line up with behavior observed in a real GPU serving engine.
+
 ---
 
 ## 10. Putting It All Together
