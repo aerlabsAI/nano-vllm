@@ -4,6 +4,8 @@
 #include "core/runner.hpp"
 #include "core/tokenizer.hpp"
 #include "utils/argparser.hpp"
+#include "utils/benchmark_result.hpp"
+#include "utils/comparison.hpp"
 #include "utils/logger.hpp"
 #include "utils/path.hpp"
 
@@ -11,7 +13,9 @@
 // Program Arguments Configuration
 // ============================================================================
 
-#define ARGS_LIST path, prompt, input_json, max_batch_size, temperature, topp, steps, without_paged_attn
+#define ARGS_LIST                                                                                         \
+    path, prompt, input_json, max_batch_size, max_tokens_per_batch, async_mode, temperature, topp, steps, \
+        without_paged_attn, save_results
 
 class Arguments : public ArgConfig<Arguments>
 {
@@ -20,10 +24,15 @@ public:
     Arg<std::string> prompt{{"-i", "--prompt"}, "Input prompt", ""};
     Arg<std::string> input_json{"--input-json", "Path to JSON file with benchmark requests", ""};
     Arg<int>         max_batch_size{{"-b", "--max-batch-size"}, "Maximum batch size for continuous batching", 1};
+    Arg<int>         max_tokens_per_batch{{"-bt", "--max-tokens-per-batch"},
+                                  "Max tokens per scheduler batch (controls chunked prefill size)",
+                                  512};
+    Arg<bool>        async_mode{"--async", "Enable async request submission (simulate dynamic arrivals)", false};
     Arg<float>       temperature{{"-t", "--temperature"}, "Temperature for sampling", 1.0f};
     Arg<float>       topp{{"-p", "--top-p"}, "Top-p (nucleus) sampling parameter", 0.9f};
     Arg<int>         steps{{"-n", "--steps"}, "Number of steps to generate", 256};
     Arg<bool>        without_paged_attn{"--without-paged-attn", "Disable PagedAttention", false};
+    Arg<std::string> save_results{"--save-results", "Save benchmark results to JSON file", ""};
 
     decltype(std::tie(ARGS_LIST)) args_tuple = std::tie(ARGS_LIST);
 };
@@ -36,6 +45,43 @@ public:
 
 int main(int argc, char **argv)
 {
+    // ---- Comparison mode (no model needed) ----
+    // Pre-scan argv since comparison mode doesn't use the positional path arg
+    std::string compare_a, compare_b, output_format = "table";
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--compare-a" && i + 1 < argc) {
+            compare_a = argv[++i];
+        }
+        else if (arg == "--compare-b" && i + 1 < argc) {
+            compare_b = argv[++i];
+        }
+        else if (arg == "--output-format" && i + 1 < argc) {
+            output_format = argv[++i];
+        }
+    }
+
+    if (!compare_a.empty() && !compare_b.empty()) {
+        try {
+            BenchmarkResult a = BenchmarkResult::load(compare_a);
+            BenchmarkResult b = BenchmarkResult::load(compare_b);
+            Comparison      cmp(a, b);
+
+            if (output_format == "json") {
+                std::cout << cmp.to_json();
+            }
+            else {
+                cmp.print_table();
+            }
+            return 0;
+        }
+        catch (const std::exception &e) {
+            LOG_ERROR("Comparison failed: ", e.what());
+            return 1;
+        }
+    }
+
+    // ---- Inference mode ----
     Arguments args;
     ArgParser parser("nano-vllm: A minimal vLLM implementation in C++");
 
@@ -91,23 +137,30 @@ int main(int argc, char **argv)
     Tokenizer tokenizer(tokenizer_path, model.config.vocab_size);
     LOG_SUCCESS("Tokenizer loaded successfully");
 
-    if (has_input_json) {
-        return run_json_benchmark(model, tokenizer, args.input_json, args.max_batch_size);
+    BenchmarkResult result;
+    try {
+        if (has_input_json) {
+            result = run_json_benchmark(
+                model, tokenizer, args.input_json, args.max_batch_size, args.async_mode, args.max_tokens_per_batch);
+        }
+        else {
+            result = run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);
+        }
     }
-    else {
-        return run_single_prompt(model, tokenizer, args.prompt, args.temperature, args.topp, args.steps);
+    catch (const std::exception &e) {
+        LOG_ERROR("Benchmark failed: ", e.what());
+        return 1;
     }
 
-    long end_time =
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
-            .count();
-
-    double elapsed = (double)(end_time - start_time) / 1000.0;
-    std::cout << std::endl;
-    LOG_SUCCESS("Generation completed in ", elapsed, " seconds");
-
-    // Print KV cache memory comparison metrics
-    model.print_metrics(pos);
+    if (!args.save_results.value.empty()) {
+        if (result.save(args.save_results)) {
+            LOG_SUCCESS("Results saved to ", args.save_results.value);
+        }
+        else {
+            LOG_ERROR("Failed to save results to ", args.save_results.value);
+            return 1;
+        }
+    }
 
     return 0;
 }

@@ -1,0 +1,39 @@
+{
+  "requests": [
+    {
+      "prompt": "Hello, how are you today?",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20,
+      "arrival_delay_ms": 0
+    },
+    {
+      "prompt": "What is the meaning of life?",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 30,
+      "arrival_delay_ms": 500
+    },
+    {
+      "prompt": "Tell me a short story.",
+      "temperature": 0.9,
+      "top_p": 0.95,
+      "max_tokens": 50,
+      "arrival_delay_ms": 1000
+    },
+    {
+      "prompt": "Hi there!",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 15,
+      "arrival_delay_ms": 1500
+    },
+    {
+      "prompt": "What is your favorite color?",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20,
+      "arrival_delay_ms": 2000
+    }
+  ]
+}
