@@ -533,14 +533,50 @@ nano-vLLM includes various test scenarios in `examples/`:
 3. **Throughput**: Tokens generated per second system-wide
 4. **Memory Utilization**: KV cache efficiency (via BlockManager)
 
-### 9.4. Benchmark Results
+### 9.4. Benchmark Results (CPU)
 
-> **TBI (To Be Implemented)**: Benchmark results will be added after true continuous batching is implemented. Expected comparisons include:
->
-> - Sequential vs. Batched throughput across different batch sizes
-> - Standard Attention vs. PagedAttention memory utilization
-> - Prefill/Decode throughput breakdown per scenario
-> - Impact of chunk size on TPOT variance
+Using the stories15M model on Apple Silicon with 6 mixed-length requests:
+
+| # | Configuration | Total Time | Prefill tok/s | Decode tok/s | Overall tok/s |
+|---|---------------|------------|---------------|--------------|---------------|
+| 1 | Sequential + StdAttn | 593.90 ms | 1286.45 | 534.22 | 769.50 |
+| 2 | Sequential + PagedAttn | 594.68 ms | 1277.75 | 534.93 | 768.48 |
+| 3 | Batched(4) + PagedAttn + No Chunk | 607.87 ms | 1232.90 | 516.74 | 751.81 |
+| 4 | Batched(4) + PagedAttn + Chunk(64) | 604.96 ms | 1209.46 | 525.93 | 755.42 |
+
+**Key observation**: Continuous batching (run 3) is **2.2% slower** than sequential (run 2), and adding chunked prefill (run 4) is roughly even with unchunked batching. This is the opposite of what happens on GPU — and the reason is important to understand.
+
+### 9.5. Why Continuous Batching & Chunked Prefill Are Slower on CPU
+
+On **GPU**, batched requests share **parallel matrix operations** (GEMM). More requests per batch means better GPU utilization, so continuous batching yields a major throughput gain.
+
+On **CPU**, every request calls `model.forward()` **sequentially** — the "batch" is just a scheduling abstraction with no compute parallelism. The overhead breaks down as:
+
+1. **Scheduler overhead**: Each iteration requires batch formation, priority evaluation, and token budget accounting — pure cost with no parallel compute payoff.
+2. **Block allocation cost**: Concurrent requests require the `BlockManager` to allocate and track blocks for multiple sequences simultaneously, adding per-iteration bookkeeping.
+3. **Chunked prefill boundary cost**: Splitting a prompt into chunks means the scheduler runs more iterations for the same total work. Each chunk boundary adds overhead from re-entering the scheduling loop, updating `prefill_cursor`, and checking budget constraints. This is why prefill throughput drops by ~1.9% with chunking.
+
+```
+CPU Execution (sequential within "batch"):
+  Iteration N:  [Req A forward] → [Req B forward] → [Req C forward] → scheduler overhead
+                 \_____________/   \_____________/   \_____________/   \________________/
+                  same speed as     same speed as     same speed as     pure overhead
+                  sequential        sequential        sequential
+
+GPU Execution (parallel within batch):
+  Iteration N:  [Req A ─┐
+                 Req B ──┤ fused GEMM  ] → scheduler overhead
+                 Req C ──┘              /   \________________/
+                 \____________________/      amortized over
+                  faster than 3x sequential  parallel speedup
+```
+
+Despite the throughput penalty, continuous batching on CPU still provides **scheduling fairness** — shorter requests finish earlier when interleaved with long ones, rather than waiting for the entire batch. Chunked prefill further improves **decode latency fairness** by allowing decode to start sooner (+1.8% decode throughput), at the cost of slightly slower prefill.
+
+| Feature | CPU Impact | GPU Impact |
+|---------|-----------|------------|
+| Continuous Batching | -2.2% throughput (scheduling overhead) | Major throughput gain (parallel GEMM) |
+| Chunked Prefill | ~even throughput, better decode latency | Better latency fairness + GPU utilization |
 
 ---
 
