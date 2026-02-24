@@ -606,23 +606,23 @@ For Qwen3-0.6B, we fixed chunk budget at `1024` and swept `max-num-seqs`.
 
 | `max-num-seqs` | req/s | out tok/s | TTFT p50 (ms) |
 | ---: | ---: | ---: | ---: |
-| 8 | 0.46 | 239.18 | 4164.58 |
-| 16 | 0.51 | 267.67 | 776.06 |
-| 24 | 0.51 | 265.72 | 755.32 |
+| 8 | 0.49 | 256.17 | 3422.49 |
+| 16 | 0.53 | 278.25 | 731.57 |
+| 24 | 0.54 | 280.51 | 689.73 |
 
 The jump from `8 -> 16` is the meaningful step: higher throughput and much lower TTFT. Going from `16 -> 24` gives little additional gain on this GPU and workload, so the useful operating point is around 16 in this setup.
 
-#### Second Observation: Chunk Budget Has a "Middle Is Better" Shape
+#### Second Observation: Chunk Budget Still Matters in This Range
 
 Still on Qwen3-0.6B, with `max-num-seqs=16` fixed:
 
 | `max-num-batched-tokens` | req/s | out tok/s | TTFT p50 (ms) | TPOT p50 (ms) | TPOT p99 (ms) |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 512 | 0.51 | 266.47 | 920.11 | 38.05 | 42.50 |
-| 1024 | 0.52 | 271.20 | 725.53 | 37.53 | 42.02 |
-| 2048 | 0.52 | 272.54 | 661.55 | 37.74 | 43.73 |
+| 512 | 0.53 | 277.95 | 833.96 | 35.46 | 40.93 |
+| 1024 | 0.54 | 282.18 | 673.96 | 33.77 | 38.23 |
+| 2048 | 0.55 | 285.94 | 589.16 | 33.22 | 38.23 |
 
-`512 -> 1024` improves both TTFT and TPOT tail slightly. `2048` continues to reduce TTFT p50, but no longer helps TPOT tail (`p99` is worse than `1024`). This is exactly the practical tuning tension we expected: larger prefill budget can improve front-of-request latency, but too much can hurt decode-step tail stability.
+`512 -> 1024` improves both TTFT and TPOT tail. `2048` further reduces TTFT p50 while keeping TPOT tail roughly flat versus `1024`. In this workload range, larger chunk budget remained beneficial without adding a visible TPOT-tail penalty.
 
 #### Detailed 0.6B Tables (Raw Metrics)
 
@@ -630,17 +630,17 @@ Chunked prefill budget sweep (`max-num-seqs=16` fixed):
 
 | Case | `max-num-batched-tokens` | Success/Fail | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | TPOT p50 (ms) | TPOT p99 (ms) | ITL p50 (ms) | ITL p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `chunk_512_s16_base` | 512 | 20/0 | 0.51 | 266.47 | 920.11 | 6070.61 | 38.05 | 42.50 | 30.89 | 94.81 | 19642.32 | 25527.42 |
-| `chunk_1024_s16_base` | 1024 | 20/0 | 0.52 | 271.20 | 725.53 | 5173.54 | 37.53 | 42.02 | 28.98 | 130.28 | 19051.41 | 25248.72 |
-| `chunk_2048_s16_base` | 2048 | 20/0 | 0.52 | 272.54 | 661.55 | 6148.61 | 37.74 | 43.73 | 35.22 | 198.37 | 19948.23 | 25568.93 |
+| `chunk_512_s16_base` | 512 | 20/0 | 0.53 | 277.95 | 833.96 | 5472.55 | 35.46 | 40.93 | 31.15 | 91.51 | 19009.39 | 23887.35 |
+| `chunk_1024_s16_base` | 1024 | 20/0 | 0.54 | 282.18 | 673.96 | 4393.41 | 33.77 | 38.23 | 24.91 | 123.72 | 18352.22 | 23109.49 |
+| `chunk_2048_s16_base` | 2048 | 20/0 | 0.55 | 285.94 | 589.16 | 3934.76 | 33.22 | 38.23 | 25.29 | 178.78 | 17920.05 | 22869.74 |
 
 Batch capacity sweep (`max-num-batched-tokens=1024` fixed):
 
 | Case | `max-num-seqs` | Success/Fail | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | TPOT p50 (ms) | TPOT p99 (ms) | ITL p50 (ms) | ITL p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) |
 | --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `batch_8_t1024_base` | 8 | 20/0 | 0.46 | 239.18 | 4164.58 | 13991.63 | 27.21 | 32.03 | 24.31 | 108.88 | 18672.92 | 24338.51 |
-| `batch_16_t1024_base` | 16 | 20/0 | 0.51 | 267.67 | 776.06 | 5715.16 | 38.57 | 43.02 | 32.82 | 136.50 | 19468.49 | 25958.98 |
-| `batch_24_t1024_base` | 24 | 20/0 | 0.51 | 265.72 | 755.32 | 1730.65 | 39.49 | 44.80 | 33.28 | 139.26 | 20181.82 | 26381.53 |
+| `batch_8_t1024_base` | 8 | 20/0 | 0.49 | 256.17 | 3422.49 | 12449.06 | 25.07 | 29.64 | 22.20 | 103.51 | 16491.12 | 21536.72 |
+| `batch_16_t1024_base` | 16 | 20/0 | 0.53 | 278.25 | 731.57 | 5394.53 | 36.47 | 41.28 | 29.48 | 126.81 | 18786.02 | 24528.23 |
+| `batch_24_t1024_base` | 24 | 20/0 | 0.54 | 280.51 | 689.73 | 2411.22 | 35.12 | 39.99 | 25.66 | 127.09 | 18727.92 | 23648.26 |
 
 #### Same Sweep on 3B: Trend Preserved, Magnitudes Amplified
 
@@ -692,10 +692,10 @@ Using matched server/workload settings, we computed aggregate ratios:
 
 | Aggregate Metric (3B / 0.6B) | Ratio |
 | --- | ---: |
-| Average `req/s` ratio | 0.61 |
-| Average output token throughput ratio | 0.60 |
-| Average TTFT p50 ratio | 6.58 |
-| Average E2EL p50 ratio | 2.12 |
+| Average `req/s` ratio | 0.58 |
+| Average output token throughput ratio | 0.58 |
+| Average TTFT p50 ratio | 7.27 |
+| Average E2EL p50 ratio | 2.26 |
 
 Throughput for 3B is roughly 60% of 0.6B, but the latency penalty is not uniform: TTFT grows much more sharply than end-to-end median latency.
 
@@ -703,12 +703,12 @@ Throughput for 3B is roughly 60% of 0.6B, but the latency penalty is not uniform
 
 | Case | req/s (0.6B) | req/s (3B) | req ratio (3B/0.6B) | out tok/s (0.6B) | out tok/s (3B) | out ratio (3B/0.6B) | TTFT p50 ms (0.6B) | TTFT p50 ms (3B) | TTFT ratio (3B/0.6B) | E2EL p50 ms (0.6B) | E2EL p50 ms (3B) | E2EL ratio (3B/0.6B) | Peak VRAM 3B (MiB) |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `chunk_512_s16` | 0.51 | 0.27 | 0.53 | 266.47 | 141.56 | 0.53 | 920.11 | 8994.24 | 9.78 | 19642.32 | 49247.59 | 2.51 | 12047 |
-| `chunk_1024_s16` | 0.52 | 0.30 | 0.58 | 271.20 | 154.73 | 0.57 | 725.53 | 5261.86 | 7.25 | 19051.41 | 42639.81 | 2.24 | 12062 |
-| `chunk_2048_s16` | 0.52 | 0.33 | 0.63 | 272.54 | 170.49 | 0.63 | 661.55 | 3739.25 | 5.65 | 19948.23 | 36762.74 | 1.84 | 12062 |
-| `batch_8_t1024` | 0.46 | 0.27 | 0.59 | 239.18 | 139.60 | 0.58 | 4164.58 | 16936.76 | 4.07 | 18672.92 | 39518.64 | 2.12 | 12015 |
-| `batch_16_t1024` | 0.51 | 0.31 | 0.61 | 267.67 | 163.19 | 0.61 | 776.06 | 4930.52 | 6.35 | 19468.49 | 39915.57 | 2.05 | 12002 |
-| `batch_24_t1024` | 0.51 | 0.36 | 0.71 | 265.72 | 187.89 | 0.71 | 755.32 | 4826.52 | 6.39 | 20181.82 | 39124.14 | 1.94 | 12100 |
+| `chunk_512_s16` | 0.53 | 0.27 | 0.51 | 277.95 | 141.56 | 0.51 | 833.96 | 8994.24 | 10.79 | 19009.39 | 49247.59 | 2.59 | 12047 |
+| `chunk_1024_s16` | 0.54 | 0.30 | 0.55 | 282.18 | 154.73 | 0.55 | 673.96 | 5261.86 | 7.81 | 18352.22 | 42639.81 | 2.32 | 12062 |
+| `chunk_2048_s16` | 0.55 | 0.33 | 0.60 | 285.94 | 170.49 | 0.60 | 589.16 | 3739.25 | 6.35 | 17920.05 | 36762.74 | 2.05 | 12062 |
+| `batch_8_t1024` | 0.49 | 0.27 | 0.55 | 256.17 | 139.60 | 0.54 | 3422.49 | 16936.76 | 4.95 | 16491.12 | 39518.64 | 2.40 | 12015 |
+| `batch_16_t1024` | 0.53 | 0.31 | 0.58 | 278.25 | 163.19 | 0.59 | 731.57 | 4930.52 | 6.74 | 18786.02 | 39915.57 | 2.12 | 12002 |
+| `batch_24_t1024` | 0.54 | 0.36 | 0.67 | 280.51 | 187.89 | 0.67 | 689.73 | 4826.52 | 7.00 | 18727.92 | 39124.14 | 2.09 | 12100 |
 
 #### What This Means for the Project
 
