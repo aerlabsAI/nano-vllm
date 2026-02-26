@@ -578,11 +578,15 @@ Despite the throughput penalty, continuous batching on CPU still provides **sche
 | Continuous Batching | -2.2% throughput (scheduling overhead)  | Major throughput gain (parallel GEMM)     |
 | Chunked Prefill     | ~even throughput, better decode latency | Better latency fairness + GPU utilization |
 
-### 9.6. Benchmark Results (GPU)
+### 9.6. vLLM Continuous-Batching Parameter Sweep (GPU)
 
-This part records what happened when we moved from the educational CPU runtime to a production-style GPU serving stack (`vLLM`) and asked a simple question:
+This part records what happened when we moved from the educational CPU runtime to a production-style GPU serving stack (`vLLM`) and asked a narrower question:
 
-How much do **continuous batching** (`max-num-seqs`) and **chunked prefill budget** (`max-num-batched-tokens`) change real latency/throughput behavior?
+How sensitive are latency/throughput metrics to two vLLM scheduling parameters: **continuous batching capacity** (`max-num-seqs`) and **chunked prefill budget** (`max-num-batched-tokens`)?
+
+Scope note: this section isolates parameter sensitivity inside vLLM continuous/chunked scheduling. It is not a request-level static batching baseline.
+
+In other words, after explaining in Section 9.5 why the same ideas can look slower on CPU, we now measure how these parameters behave in a GPU-native serving stack.
 
 #### Setup and Reading Guide
 
@@ -725,15 +729,15 @@ Throughput for 3B is roughly 60% of 0.6B, but the latency penalty is not uniform
   </tr>
 </table>
 
-#### What This Means for the Project
+#### What This Means for This vLLM Sweep
 
-These GPU results support the scheduling intuition from earlier sections:
+Within this vLLM setup and workload, the main takeaways are:
 
-- Continuous batching capacity is a first-order tuning lever.
-- Chunked prefill budget has a real latency/throughput trade-off curve.
-- Larger model scale preserves the same trend but increases latency pressure.
+- `max-num-seqs` is a first-order tuning lever for this serving configuration.
+- `max-num-batched-tokens` shows a practical latency/throughput trade-off curve in the tested range.
+- Larger model scale preserves the same directional trend while increasing latency pressure.
 
-#### Why These Two Features Tend to Be Faster on GPU
+#### Why This Sweep Behaves This Way on GPU
 
 - Larger `max-num-seqs` increases effective GPU occupancy by grouping more decode steps into larger batched kernel work.
 - Chunked prefill reduces long-prompt head-of-line blocking, so short decode requests keep making progress instead of waiting behind a single large prefill.
@@ -741,6 +745,51 @@ These GPU results support the scheduling intuition from earlier sections:
 - On CPU, the same policies can look slower than a baseline because there is no comparable large-matrix parallel speedup to offset scheduler/chunk overhead.
 
 So even though nano-vLLM remains an educational implementation, the core scheduler concepts line up with behavior observed in a real GPU serving engine.
+
+For a direct policy comparison between request-level static batching and slot-reuse behavior, see Section 9.7.
+
+### 9.7. Control Experiment: Request-Level Static Batch Baseline (Vanilla HF)
+
+To avoid treating `max-num-seqs` tuning as a proxy for request-level batching, we added a separate control run on vanilla Hugging Face `transformers`.
+
+One-line takeaway: even with the same batch size, whether slots are reused immediately can dominate both throughput and latency.
+
+- Runtime: vanilla HF (`AutoModelForCausalLM`), no vLLM scheduler/runtime
+- Models: `Qwen/Qwen3-0.6B`, `Qwen/Qwen2.5-3B-Instruct`
+- Device: RTX 3060 12GB
+- Workload: `num-requests=20`, prompt length pattern `[128, 256, 384, 512]`, output target pattern `[24, 24, 24, 96, 24, 24, 24, 128]`
+- Capacity: `batch_size=8`
+
+Two policies were measured on the same request set:
+
+1. `request_level_static`: fixed micro-batches, finished requests stay until the longest in the batch ends
+2. `continuous_slot_reuse`: finished slots are immediately reused by waiting requests
+
+Qwen3-0.6B:
+
+| Mode | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) | Wasted decode slots |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `request_level_static` | 0.0788 | 3.56 | 170443.54 | 231655.12 | 181026.25 | 250634.12 | 1528 |
+| `continuous_slot_reuse` | 0.3702 | 16.73 | 10829.85 | 30688.38 | 21141.07 | 53801.35 | 0 |
+
+For Qwen3-0.6B, `continuous_slot_reuse` delivers `4.70x` higher `req/s` and `4.70x` higher output token throughput than `request_level_static` (`continuous / static`). The latency gap is also large: when measured as `static / continuous`, TTFT p50 is `15.74x` worse in static mode.
+
+Qwen2.5-3B-Instruct:
+
+| Mode | req/s | out tok/s | TTFT p50 (ms) | TTFT p99 (ms) | E2EL p50 (ms) | E2EL p99 (ms) | Wasted decode slots |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `request_level_static` | 0.0418 | 1.89 | 214560.44 | 403869.49 | 245587.14 | 467453.87 | 1528 |
+| `continuous_slot_reuse` | 0.1142 | 5.16 | 35535.57 | 100550.03 | 69396.74 | 174732.68 | 0 |
+
+For Qwen2.5-3B-Instruct, the same direction holds: `continuous_slot_reuse` achieves `2.73x` higher throughput (`req/s` and output token throughput), while TTFT p50 is `6.04x` worse in static mode (`static / continuous`).
+
+Mechanically, static request-level batching keeps long requests in control of the batch lifetime, so short requests that finish early cannot immediately return capacity. This creates idle decode slots and hurts both throughput and latency.
+
+Slot reuse removes that idle window by admitting waiting requests as soon as a slot is freed, which is why both model sizes show higher throughput and lower TTFT under the same batch-size limit.
+
+The practical implication is that scheduler policy itself is a first-order bottleneck, not just model size or raw compute.
+
+Absolute values here should not be compared 1:1 with Section 9.6 because this control uses vanilla HF execution without vLLM runtime optimizations, but the scheduler-level direction is clear and consistent.
 
 ---
 
