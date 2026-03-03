@@ -94,11 +94,37 @@ enum class RequestStatus {
 };
 ```
 
-```
-PENDING → PREFILLING → DECODING → FINISHED
-   │           │            │
-   │           └────────────┴─→ FAILED (on error)
-   └─→ Waiting in queue until scheduler picks it up
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: Request submitted
+
+    PENDING --> PREFILLING: Scheduler picks up
+    PENDING --> FAILED: Queue error
+
+    PREFILLING --> DECODING: Prompt processed
+    PREFILLING --> FAILED: Processing error
+
+    DECODING --> FINISHED: Generation complete
+    DECODING --> FAILED: Generation error
+
+    FINISHED --> [*]
+    FAILED --> [*]
+
+    note right of PENDING
+        Waiting in queue
+        until scheduler
+        picks it up
+    end note
+
+    note right of PREFILLING
+        Processing
+        prompt tokens
+    end note
+
+    note right of DECODING
+        Generating
+        output tokens
+    end note
 ```
 
 ### 3.4. Scheduler Design
@@ -298,24 +324,32 @@ void run_prefill_batch(ScheduledBatch &batch, Scheduler &scheduler) {
 
 ### 5.2. Component Interaction
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        BatchedRunner                            │
-│                                                                 │
-│  ┌──────────────┐     ┌──────────────┐     ┌────────────────┐  │
-│  │   Scheduler  │────▶│ScheduledBatch│────▶│RequestProcessor│  │
-│  │              │     │              │     │                │  │
-│  │ - pending    │     │ - prefill[]  │     │ - forward()    │  │
-│  │ - running    │     │ - decode[]   │     │ - sample()     │  │
-│  └──────────────┘     └──────────────┘     └────────────────┘  │
-│         │                                          │           │
-│         │                                          ▼           │
-│         │                                 ┌────────────────┐   │
-│         └──── free on completion ────────▶│  BlockManager  │   │
-│                                           │ - allocate()   │   │
-│                                           │ - free()       │   │
-│                                           └────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph LR
+    subgraph BR["<b>BatchedRunner</b>"]
+        direction LR
+
+        subgraph Components["Components"]
+            direction LR
+            S["<b>Scheduler</b><br/>- pending queue<br/>- running queue"]
+            B["<b>ScheduledBatch</b><br/>- prefill[]<br/>- decode[]"]
+            R["<b>RequestProcessor</b><br/>- forward()<br/>- sample()"]
+        end
+
+        BM["<b>BlockManager</b><br/>- allocate()<br/>- free()"]
+
+        S -->|schedule| B
+        B -->|process| R
+        R -->|update cache| BM
+        S -.->|free on<br/>completion| BM
+    end
+
+    style BR fill:#f9f9f9,stroke:#333,stroke-width:3px
+    style Components fill:none,stroke:none
+    style S fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style B fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style R fill:#e1f5ff,stroke:#333,stroke-width:2px
+    style BM fill:#ffe1e1,stroke:#333,stroke-width:2px
 ```
 
 ---
