@@ -1,0 +1,23 @@
+{
+  "description": "Chunked prefill demonstration: Use --max-tokens-per-batch to control chunking. With default model (max_seq_len=256), use --max-tokens-per-batch 64 to trigger chunking on the ~70 token prompt.",
+  "requests": [
+    {
+      "prompt": "Once upon a time in a magical forest, there lived a little rabbit named Lily. She had soft white fur and bright blue eyes. Every morning, Lily would hop through the meadow to visit her best friend, a wise old owl named Oliver. Oliver lived in a tall oak tree and knew many stories about the forest.",
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "What is chunked prefill in LLM inference?",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    },
+    {
+      "prompt": "Explain continuous batching briefly.",
+      "temperature": 0.8,
+      "top_p": 0.9,
+      "max_tokens": 20
+    }
+  ]
+}

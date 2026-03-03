@@ -12,7 +12,7 @@
 │   ├── core/              # Core components (model, tokenizer, attention, sampler)
 │   ├── ops/               # Operations (activation, linear, normalization, positional)
 │   ├── scheduler/         # Block manager for memory scheduling
-│   └── utils/             # Utilities (logger, argparser, path handler)
+│   └── utils/             # Utilities (logger, argparser, path, benchmark, comparison)
 ├── models/                # Model checkpoints and tokenizer
 ├── docs/                  # Documentation
 ├── CMakeLists.txt         # CMake configuration
@@ -31,14 +31,37 @@
 
    ```bash
    make clang
+   cmake --build build
    ```
 
 3. **Run**:
 
    ```bash
-   cd build
-   make main
-   ./main ../models -i hi
+   ./build/main models -i "Hello"
+   ```
+
+4. **Benchmark with JSON workload**:
+
+   ```bash
+   # Sequential
+   ./build/main models --input-json examples/comparison_workload.json
+
+   # Batched with continuous batching
+   ./build/main models --input-json examples/comparison_workload.json -b 4
+
+   # Async with dynamic arrivals
+   ./build/main models --input-json examples/comparison_workload.json -b 4 --async
+   ```
+
+5. **Save & Compare results**:
+
+   ```bash
+   # Save results from two different configurations
+   ./build/main models --input-json examples/comparison_workload.json --save-results result_a.json
+   ./build/main models --input-json examples/comparison_workload.json -b 4 --save-results result_b.json
+
+   # Compare side-by-side (no model needed)
+   ./build/main --compare-a result_a.json --compare-b result_b.json
    ```
 
 ## Requirements
